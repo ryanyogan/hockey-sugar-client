@@ -1,0 +1,104 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String           @id @default(cuid())
+  email            String           @unique
+  name             String
+  passwordHash     String
+  role             Role             @default(ATHLETE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  parentAthletes   ParentAthlete[]  @relation("ParentToAthlete")
+  athleteParents   ParentAthlete[]  @relation("AthleteToParent")
+  sentMessages     Message[]        @relation("SentMessages")
+  receivedMessages Message[]        @relation("ReceivedMessages")
+  glucoseReadings  GlucoseReading[]
+  recordedReadings GlucoseReading[] @relation("RecordedReadings")
+  statuses         Status[]
+
+  @@index([email])
+}
+
+enum Role {
+  ADMIN
+  PARENT
+  COACH
+  ATHLETE
+}
+
+model GlucoseReading {
+  id           String   @id @default(cuid())
+  value        Float
+  unit         String   @default("mg/dL")
+  recordedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordedById String
+  recordedBy   User     @relation("RecordedReadings", fields: [recordedById], references: [id], onDelete: Cascade)
+  status       Status?  @relation(fields: [statusId], references: [id])
+  statusId     String?
+
+  @@index([userId])
+  @@index([recordedById])
+}
+
+model Status {
+  id              String           @id @default(cuid())
+  type            StatusType
+  acknowledgedAt  DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  glucoseReadings GlucoseReading[]
+
+  @@index([userId])
+}
+
+enum StatusType {
+  OK
+  HIGH
+  LOW
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  content    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  senderId   String
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  isUrgent   Boolean  @default(false)
+
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model ParentAthlete {
+  id        String   @id @default(cuid())
+  parentId  String
+  athleteId String
+  parent    User     @relation("ParentToAthlete", fields: [parentId], references: [id], onDelete: Cascade)
+  athlete   User     @relation("AthleteToParent", fields: [athleteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentId, athleteId])
+  @@index([parentId])
+  @@index([athleteId])
+}
