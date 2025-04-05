@@ -17,7 +17,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const athlete = await db.user.findFirst({
     where: {
       id: athleteId,
-      parentAthletes: {
+      athleteParents: {
         some: {
           parentId: user.id,
         },

@@ -19,6 +19,7 @@ export default [
   layout("./routes/parent/layout.tsx", [
     ...prefix("/parent", [
       index("./routes/parent/index.tsx"),
+      route("manage-parents", "./routes/parent/manage-parents.tsx"),
       route("add-child", "./routes/parent/add-child.tsx"),
       route("add-parent", "./routes/parent/add-parent.tsx"),
       route("history/:athleteId", "./routes/parent/history.tsx"),

@@ -1,4 +1,5 @@
 import type { User } from "@prisma/client";
+import { redirect } from "@remix-run/node";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { db } from "./db.server";
@@ -7,41 +8,45 @@ import { db } from "./db.server";
  * Verifies user credentials and returns the user if valid
  */
 export async function verifyLogin(email: string, password: string) {
-  const userWithPassword = await db.user.findUnique({
-    where: { email },
+  const user = await db.user.findUnique({
+    where: { email: email.toLowerCase() },
   });
 
-  if (!userWithPassword) {
-    return null;
-  }
+  if (!user) return null;
 
-  const isValid = await bcrypt.compare(password, userWithPassword.passwordHash);
+  const isValid = await bcrypt.compare(password, user.passwordHash);
+  if (!isValid) return null;
 
-  if (!isValid) {
-    return null;
-  }
-
-  const { passwordHash, ...userWithoutPassword } = userWithPassword;
-  return userWithoutPassword;
+  return user;
 }
+
+type CreateUserParams = {
+  email: string;
+  password: string;
+  name: string;
+  role: "PARENT" | "COACH" | "ATHLETE";
+  isAdmin?: boolean;
+};
 
 /**
  * Creates a new user with hashed password
  */
-export async function createUser(
-  email: string,
-  password: string,
-  name: string,
-  role: "ADMIN" | "PARENT" | "COACH" | "ATHLETE" = "ATHLETE"
-) {
-  const passwordHash = await bcrypt.hash(password, 10);
+export async function createUser({
+  email,
+  password,
+  name,
+  role,
+  isAdmin = false,
+}: CreateUserParams) {
+  const hashedPassword = await bcrypt.hash(password, 10);
 
   return db.user.create({
     data: {
-      email,
-      passwordHash,
+      email: email.toLowerCase(),
+      passwordHash: hashedPassword,
       name,
       role,
+      isAdmin,
     },
   });
 }
@@ -100,4 +105,24 @@ export async function authenticateJWT(request: Request) {
     console.error("JWT verification error:", error);
     return null;
   }
+}
+
+/**
+ * Requires a parent user to be authenticated
+ * Redirects to login if not authenticated or not a parent
+ */
+export async function requireParentUser(request: Request): Promise<User> {
+  const user = await authenticateJWT(request);
+
+  if (!user) {
+    throw redirect("/login");
+  }
+
+  const dbUser = await getUserById(user.id);
+
+  if (!dbUser || dbUser.role !== "PARENT") {
+    throw redirect("/login");
+  }
+
+  return dbUser;
 }

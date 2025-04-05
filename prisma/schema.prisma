@@ -16,6 +16,7 @@ model User {
   name             String
   passwordHash     String
   role             Role             @default(ATHLETE)
+  isAdmin          Boolean          @default(false)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   parentAthletes   ParentAthlete[]  @relation("ParentToAthlete")

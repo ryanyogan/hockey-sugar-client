@@ -103,12 +103,12 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     // Create the athlete account
-    const athlete = await createUser(
-      (email as string).toLowerCase(),
-      password as string,
-      name as string,
-      "ATHLETE"
-    );
+    const athlete = await createUser({
+      email: (email as string).toLowerCase(),
+      password: password as string,
+      name: name as string,
+      role: "ATHLETE",
+    });
 
     console.log("Created athlete:", athlete.id, athlete.name);
 

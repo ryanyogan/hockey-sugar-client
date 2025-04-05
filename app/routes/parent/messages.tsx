@@ -2,16 +2,20 @@ import { useEffect, useState } from "react";
 import { data, Link, useFetcher, useLoaderData } from "react-router";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
-import type { Route } from "./+types/messages";
+import type { Route } from "../+types";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const parent = await requireParentUser(request);
 
-  // Get athletes associated with this parent
+  // Get athletes associated with this parent using the new schema
   const athletes = await db.user.findMany({
     where: {
-      parentId: parent.id,
       role: "ATHLETE",
+      athleteParents: {
+        some: {
+          parentId: parent.id,
+        },
+      },
     },
     select: {
       id: true,
@@ -64,11 +68,15 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
 
-    // Validate the athlete belongs to this parent
+    // Validate the athlete belongs to this parent using the new schema
     const athlete = await db.user.findFirst({
       where: {
         id: athleteId,
-        parentId: parent.id,
+        athleteParents: {
+          some: {
+            parentId: parent.id,
+          },
+        },
       },
     });
 

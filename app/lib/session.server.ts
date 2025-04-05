@@ -1,11 +1,22 @@
-import type { User } from "@prisma/client";
-import { createCookieSessionStorage, redirect } from "react-router";
-import { getUserById } from "./auth.server";
+import {
+  createCookieSessionStorage,
+  redirect,
+  type Session,
+} from "react-router";
+import { db } from "./db.server";
+
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: "PARENT" | "COACH" | "ATHLETE" | "ADMIN";
+  isAdmin: boolean;
+};
 
 // Create session storage
-export const sessionStorage = createCookieSessionStorage({
+const sessionStorage = createCookieSessionStorage({
   cookie: {
-    name: "__hockey_health_session",
+    name: "__session",
     httpOnly: true,
     path: "/",
     sameSite: "lax",
@@ -13,6 +24,11 @@ export const sessionStorage = createCookieSessionStorage({
     secure: process.env.NODE_ENV === "production",
   },
 });
+
+export async function getSession(request: Request): Promise<Session> {
+  const cookie = request.headers.get("Cookie");
+  return sessionStorage.getSession(cookie);
+}
 
 export async function createUserSession(userId: string, redirectTo: string) {
   const session = await sessionStorage.getSession();
@@ -24,60 +40,75 @@ export async function createUserSession(userId: string, redirectTo: string) {
   });
 }
 
+export async function getUserId(request: Request): Promise<string | null> {
+  const session = await getSession(request);
+  const userId = session.get("userId");
+  if (!userId || typeof userId !== "string") return null;
+  return userId;
+}
+
+export async function requireUserId(
+  request: Request,
+  redirectTo: string = new URL(request.url).pathname
+): Promise<string> {
+  const session = await getSession(request);
+  const userId = session.get("userId");
+  if (!userId || typeof userId !== "string") {
+    const searchParams = new URLSearchParams([["redirectTo", redirectTo]]);
+    throw redirect(`/login?${searchParams}`);
+  }
+  return userId;
+}
+
 export async function getUserFromSession(
   request: Request
 ): Promise<User | null> {
-  const session = await sessionStorage.getSession(
-    request.headers.get("Cookie")
-  );
+  const userId = await getUserId(request);
+  if (typeof userId !== "string") {
+    return null;
+  }
 
-  const userId = session.get("userId");
-  if (!userId) return null;
-
-  const user = await getUserById(userId);
-  return user;
+  try {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isAdmin: true,
+      },
+    });
+    return user;
+  } catch (error) {
+    console.error("Error fetching user from session:", error);
+    throw logout(request);
+  }
 }
 
-export async function requireUser(
-  request: Request,
-  redirectTo: string = "/login"
-) {
-  const user = await getUserFromSession(request);
+export async function getUser(request: Request): Promise<User | null> {
+  return getUserFromSession(request);
+}
 
+export async function requireUser(request: Request): Promise<User> {
+  const user = await getUser(request);
   if (!user) {
-    const searchParams = new URLSearchParams([["redirectTo", request.url]]);
-    throw redirect(`${redirectTo}?${searchParams}`);
+    throw redirect("/login");
   }
-
   return user;
 }
 
-export async function requireParentUser(request: Request) {
+export async function requireParentUser(request: Request): Promise<User> {
   const user = await requireUser(request);
-
-  if (user.role !== "PARENT" && user.role !== "ADMIN") {
-    throw redirect("/dashboard");
+  if (user.role !== "PARENT" && user.role !== "COACH") {
+    throw redirect("/");
   }
-
-  return user;
-}
-
-export async function requireAthleteUser(request: Request) {
-  const user = await requireUser(request);
-
-  if (user.role !== "ATHLETE") {
-    throw redirect("/dashboard");
-  }
-
   return user;
 }
 
 export async function logout(request: Request) {
-  const session = await sessionStorage.getSession(
-    request.headers.get("Cookie")
-  );
-
-  return redirect("/login", {
+  const session = await getSession(request);
+  return redirect("/", {
     headers: {
       "Set-Cookie": await sessionStorage.destroySession(session),
     },
