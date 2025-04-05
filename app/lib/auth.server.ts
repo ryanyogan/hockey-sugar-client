@@ -1,7 +1,7 @@
 import type { User } from "@prisma/client";
-import { redirect } from "@remix-run/node";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { redirect } from "react-router";
 import { db } from "./db.server";
 
 /**

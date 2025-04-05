@@ -83,12 +83,22 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const user = await createUser(
-    email.toLowerCase(),
+  // Check if this is the first parent user
+  let isAdmin = false;
+  if (role === "PARENT") {
+    const existingParents = await db.user.findMany({
+      where: { role: "PARENT" },
+    });
+    isAdmin = existingParents.length === 0; // First parent is admin
+  }
+
+  const user = await createUser({
+    email: email.toLowerCase(),
     password,
     name,
-    role as "PARENT" | "ATHLETE"
-  );
+    role: role as "PARENT" | "ATHLETE",
+    isAdmin,
+  });
 
   // Redirect to role-specific dashboard
   const redirectTo = role === "ATHLETE" ? "/athlete" : "/parent";

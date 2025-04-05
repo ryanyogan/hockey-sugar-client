@@ -1,8 +1,8 @@
+import { format } from "date-fns";
 import {
   CartesianGrid,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -62,111 +62,82 @@ export function GlucoseChart({
     highThreshold + 20
   );
 
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-
-      return (
-        <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md">
-          <p className="text-sm font-medium">{data.fullTime}</p>
-          <p className="text-sm text-gray-700">
-            <span className="font-medium">Glucose:</span> {data.value}
-          </p>
-          <p className="text-sm">
-            <span className="font-medium">Status:</span>{" "}
-            <span
-              className={
-                data.status === StatusType.HIGH
-                  ? "text-black font-medium"
-                  : data.status === StatusType.LOW
-                  ? "text-red-600 font-medium"
-                  : "text-green-600"
-              }
-            >
-              {data.status}
-            </span>
-          </p>
-          {data.status === StatusType.LOW && (
-            <p className="text-xs text-gray-500">
-              {data.acknowledged ? "Acknowledged" : "Not acknowledged"}
-            </p>
-          )}
-        </div>
-      );
-    }
-
-    return null;
-  };
-
   return (
-    <div className={`w-full ${className}`}>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart
-          data={chartData}
-          margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-          <XAxis dataKey="time" tick={{ fontSize: 12 }} tickMargin={10} />
-          <YAxis
-            domain={[
-              Math.floor(minValue / 10) * 10,
-              Math.ceil(maxValue / 10) * 10,
-            ]}
-            tick={{ fontSize: 12 }}
-            tickMargin={10}
-            label={{
-              value: "Glucose (mg/dL)",
-              angle: -90,
-              position: "insideLeft",
-              dy: 50,
-              fontSize: 12,
-            }}
-          />
-          <Tooltip content={<CustomTooltip />} />
-
-          {/* Reference lines for thresholds */}
-          <ReferenceLine
-            y={highThreshold}
-            stroke="#000000"
-            strokeWidth={1.5}
-            strokeDasharray="5 5"
-          />
-          <ReferenceLine
-            y={lowThreshold}
-            stroke="#DC2626"
-            strokeWidth={1.5}
-            strokeDasharray="5 5"
-          />
-
-          {/* Main line */}
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke="#2563EB"
-            strokeWidth={2}
-            activeDot={{ r: 8 }}
-            dot={{
-              stroke: "#2563EB",
-              strokeWidth: 1,
-              r: 4,
-              fill: "#fff",
-            }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-
-      {/* Legend */}
-      <div className="flex justify-center items-center space-x-6 mt-2">
-        <div className="flex items-center">
-          <div className="w-3 h-3 bg-black rounded-full mr-2" />
-          <span className="text-xs text-gray-600">High ({highThreshold})</span>
-        </div>
-        <div className="flex items-center">
-          <div className="w-3 h-3 bg-red-600 rounded-full mr-2" />
-          <span className="text-xs text-gray-600">Low ({lowThreshold})</span>
-        </div>
-      </div>
+    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+      {readings.length === 0 ? (
+        <>
+          <svg
+            className="w-12 h-12 mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+            />
+          </svg>
+          <p className="text-lg font-medium">No glucose readings available</p>
+          <p className="text-sm">
+            Start tracking glucose levels to see your history
+          </p>
+        </>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={readings}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis
+              dataKey="recordedAt"
+              tickFormatter={(value) =>
+                format(new Date(value), "MMM d, h:mm a")
+              }
+              stroke="#6b7280"
+              tick={{ fontSize: 12 }}
+            />
+            <YAxis domain={[0, 400]} stroke="#6b7280" tick={{ fontSize: 12 }} />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-white p-2 rounded-lg shadow-lg border border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900">
+                          {data.value} {data.unit}
+                        </span>
+                        {data.status && (
+                          <span
+                            className={`text-xs px-1.5 py-0.5 rounded ${
+                              data.status.type === "HIGH"
+                                ? "bg-orange-100 text-orange-700"
+                                : data.status.type === "LOW"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-green-100 text-green-700"
+                            }`}
+                          >
+                            {data.status.type}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              dot={{ fill: "#3b82f6", strokeWidth: 2 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }

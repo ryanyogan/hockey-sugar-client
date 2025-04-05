@@ -1,7 +1,35 @@
+import type { StatusType as PrismaStatusType } from "@prisma/client";
 import { useEffect, useState } from "react";
-import { data, Link, useFetcher, useLoaderData } from "react-router";
+import {
+  data,
+  Link,
+  useFetcher,
+  useLoaderData,
+  useNavigate,
+  useOutletContext,
+} from "react-router";
 import { GlucoseChart } from "~/components/glucose/glucose-chart";
 import { StatusType } from "~/components/status/status-display";
+import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import { Textarea } from "~/components/ui/textarea";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
 import type { Route } from "../+types";
@@ -63,6 +91,21 @@ export async function loader({ request }: Route.LoaderArgs) {
         },
       });
 
+      // Transform glucose history to match GlucoseChart component's expected format
+      const transformedGlucoseHistory = glucoseHistory.map((reading) => ({
+        id: reading.id,
+        value: reading.value,
+        unit: reading.unit,
+        recordedAt: reading.recordedAt.toISOString(),
+        status: reading.status
+          ? {
+              type: reading.status.type as StatusType,
+              acknowledgedAt:
+                reading.status.acknowledgedAt?.toISOString() ?? null,
+            }
+          : null,
+      }));
+
       // Get unread messages count
       const unreadMessagesCount = await db.message.count({
         where: {
@@ -74,19 +117,24 @@ export async function loader({ request }: Route.LoaderArgs) {
 
       return {
         ...athlete,
-        status: latestStatus,
-        glucose: latestGlucose,
-        glucoseHistory: glucoseHistory.map((reading) => ({
-          ...reading,
-          recordedAt: reading.recordedAt.toISOString(),
-          status: reading.status
-            ? {
-                type: reading.status.type as StatusType,
-                acknowledgedAt:
-                  reading.status.acknowledgedAt?.toISOString() ?? null,
-              }
-            : null,
-        })),
+        status: latestStatus
+          ? {
+              ...latestStatus,
+              acknowledgedAt:
+                latestStatus.acknowledgedAt?.toISOString() ?? null,
+              createdAt: latestStatus.createdAt.toISOString(),
+              updatedAt: latestStatus.updatedAt.toISOString(),
+            }
+          : null,
+        glucose: latestGlucose
+          ? {
+              ...latestGlucose,
+              recordedAt: latestGlucose.recordedAt.toISOString(),
+              createdAt: latestGlucose.createdAt.toISOString(),
+              updatedAt: latestGlucose.updatedAt.toISOString(),
+            }
+          : null,
+        glucoseHistory: transformedGlucoseHistory,
         unreadMessagesCount,
       };
     })
@@ -262,565 +310,478 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function ParentDashboard() {
   const { user, athletes } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher();
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(
-    athletes.length > 0 ? athletes[0].id : null
-  );
+  const context = useOutletContext<{
+    selectedAthleteId: string | null;
+  }>();
+  const selectedAthleteId =
+    typeof context.selectedAthleteId === "string"
+      ? context.selectedAthleteId
+      : null;
+  const fetcher = useFetcher<{ success?: boolean }>();
+  const [isStrobeDialogOpen, setIsStrobeDialogOpen] = useState(false);
+  const navigate = useNavigate();
 
-  // Set first athlete as selected on initial load if none is selected
+  // Define the athlete type to fix TypeScript errors
+  type Athlete = {
+    id: string;
+    name: string;
+    status?: {
+      id: string;
+      type: PrismaStatusType;
+      acknowledgedAt: string | null;
+      userId: string;
+      createdAt: string;
+      updatedAt: string;
+    } | null;
+    glucose?: {
+      id: string;
+      value: number;
+      unit: string;
+      recordedAt: string;
+      userId: string;
+      recordedById: string;
+      statusId: string | null;
+      createdAt: string;
+      updatedAt: string;
+    } | null;
+    glucoseHistory: Array<{
+      id: string;
+      value: number;
+      unit: string;
+      recordedAt: string;
+      status: {
+        type: StatusType;
+        acknowledgedAt: string | null;
+      } | null;
+    }>;
+    unreadMessagesCount: number;
+  };
+
+  const selectedAthlete = athletes.find(
+    (a: Athlete) => a.id === selectedAthleteId
+  ) as Athlete | undefined;
+
+  // Reset form after successful submission
   useEffect(() => {
-    if (athletes.length > 0 && !selectedAthleteId) {
-      setSelectedAthleteId(athletes[0].id);
+    if (fetcher.state === "idle" && fetcher.data?.success) {
+      const form = document.querySelector(
+        'form[method="post"]'
+      ) as HTMLFormElement;
+      if (form) {
+        form.reset();
+      }
     }
-  }, [athletes, selectedAthleteId]);
-
-  const selectedAthlete = athletes.find((a) => a.id === selectedAthleteId);
+  }, [fetcher.state, fetcher.data]);
 
   const handleGlucoseSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
-
     fetcher.submit(form, { method: "post" });
   };
 
   const handleMessageSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
-
     fetcher.submit(form, { method: "post" });
-
-    // Reset the form
     form.reset();
   };
 
   const handleSendStrobe = () => {
     if (!selectedAthleteId) return;
 
-    if (
-      window.confirm(
-        "Are you sure you want to send a STROBE alert? This should only be used in urgent situations."
-      )
-    ) {
-      fetcher.submit(
-        {
-          intent: "send-strobe",
-          athleteId: selectedAthleteId,
-        },
-        { method: "post" }
-      );
-    }
+    fetcher.submit(
+      {
+        intent: "send-strobe",
+        athleteId: selectedAthleteId,
+      },
+      { method: "post" }
+    );
+
+    setIsStrobeDialogOpen(false);
   };
 
   const isSubmitting = fetcher.state !== "idle";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              Parent Dashboard
+    <div className="space-y-6">
+      {/* Page header with prominent athlete display */}
+      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {selectedAthlete ? selectedAthlete.name : "Dashboard"}
             </h1>
-            <div className="flex items-center space-x-4">
-              <Link
-                to="/parent/add-child"
-                className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                Add Athlete
-              </Link>
-              <Link
-                to="/parent/add-parent"
-                className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                Add Parent
-              </Link>
-            </div>
+            <p className="mt-1 text-sm text-gray-500">
+              {selectedAthlete
+                ? `${
+                    selectedAthlete.status?.type || "No Status"
+                  } • Last Reading: ${
+                    selectedAthlete.glucose
+                      ? `${selectedAthlete.glucose.value} ${selectedAthlete.glucose.unit}`
+                      : "No readings"
+                  }`
+                : "Monitor and manage athlete health data"}
+            </p>
           </div>
         </div>
-      </header>
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {athletes.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <div className="mb-6">
-              <div className="mx-auto h-16 w-16 flex items-center justify-center rounded-full bg-blue-100">
-                <svg
-                  className="h-8 w-8 text-blue-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="1.5"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
-                  />
-                </svg>
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold mb-2">
-              Welcome to Hockey Health Monitor
-            </h2>
-            <p className="text-gray-600 mb-8">
-              You don't have any athletes added to your account yet. Add an
-              athlete to start monitoring their glucose levels.
-            </p>
-            <Link
-              to="/parent/add-child"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
+      </div>
+
+      {/* Rest of the dashboard content */}
+      {selectedAthlete ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Add Glucose Reading - Moved to top and made more prominent */}
+          <div className="bg-white rounded-lg shadow p-6 lg:col-span-3 border-2 border-blue-100">
+            <h2 className="text-xl font-medium text-gray-900 mb-4 flex items-center">
               <svg
-                className="h-5 w-5 mr-2"
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 mr-2 text-blue-600"
                 fill="none"
                 viewBox="0 0 24 24"
-                strokeWidth="1.5"
                 stroke="currentColor"
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="M12 4.5v15m7.5-7.5h-15"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                 />
               </svg>
-              Add Your First Athlete
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-            {/* Left Column - Athlete List */}
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                <div className="px-4 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Your Athletes
-                  </h3>
+              Add Glucose Reading for {selectedAthlete.name}
+            </h2>
+            <fetcher.Form
+              method="post"
+              onSubmit={handleGlucoseSubmit}
+              className="space-y-4"
+            >
+              <input type="hidden" name="intent" value="update-glucose" />
+              <input
+                type="hidden"
+                name="athleteId"
+                value={selectedAthleteId || ""}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="glucose-value">Glucose Value</Label>
+                  <Input
+                    id="glucose-value"
+                    name="value"
+                    type="number"
+                    required
+                    className="mt-1"
+                    placeholder="Enter glucose value"
+                  />
                 </div>
 
-                <ul className="divide-y divide-gray-200">
-                  {athletes.map((athlete) => {
-                    const isSelected = athlete.id === selectedAthleteId;
-                    const statusType = athlete.status?.type || StatusType.OK;
+                <div>
+                  <Label htmlFor="glucose-unit">Unit</Label>
+                  <Select name="unit" defaultValue="mg/dL">
+                    <SelectTrigger id="glucose-unit" className="mt-1">
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mg/dL">mg/dL</SelectItem>
+                      <SelectItem value="mmol/L">mmol/L</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                    let statusColor = "bg-green-100 text-green-800";
-                    if (statusType === StatusType.HIGH) {
-                      statusColor = "bg-black text-white";
-                    } else if (statusType === StatusType.LOW) {
-                      statusColor = "bg-red-100 text-red-800";
-                    }
+                <div className="flex items-end">
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Adding..." : "Add Reading"}
+                  </Button>
+                </div>
+              </div>
+            </fetcher.Form>
+          </div>
 
-                    return (
-                      <li
-                        key={athlete.id}
-                        className={`px-4 py-4 cursor-pointer transition-colors duration-150 ${
-                          isSelected ? "bg-blue-50" : "hover:bg-gray-50"
-                        }`}
-                        onClick={() => setSelectedAthleteId(athlete.id)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {athlete.name}
-                            </p>
-                            <div className="flex items-center mt-1">
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor}`}
-                              >
-                                {statusType}
-                              </span>
-                              {athlete.glucose && (
-                                <span className="ml-2 text-xs text-gray-500">
-                                  {athlete.glucose.value} {athlete.glucose.unit}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {athlete.unreadMessagesCount > 0 && (
-                            <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">
-                              {athlete.unreadMessagesCount}
-                            </span>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+          {/* Status Card */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">
+              Current Status
+            </h2>
+            <div className="flex flex-col items-center justify-center p-4 rounded-lg bg-gray-50">
+              <div
+                className={`text-4xl font-bold mb-2 ${
+                  selectedAthlete.status?.type === StatusType.HIGH
+                    ? "text-black"
+                    : selectedAthlete.status?.type === StatusType.LOW
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
+                {selectedAthlete.status?.type || "OK"}
+              </div>
+              {selectedAthlete.glucose && (
+                <div className="text-2xl text-gray-700">
+                  {selectedAthlete.glucose.value} {selectedAthlete.glucose.unit}
+                </div>
+              )}
+              <div className="text-sm text-gray-500 mt-2">
+                {selectedAthlete.glucose
+                  ? `Last updated: ${new Date(
+                      selectedAthlete.glucose.recordedAt
+                    ).toLocaleString()}`
+                  : "No recent readings"}
+              </div>
+              {selectedAthlete.status?.type === StatusType.LOW && (
+                <div
+                  className={`mt-2 text-sm ${
+                    selectedAthlete.status.acknowledgedAt
+                      ? "text-green-600"
+                      : "text-red-600 font-medium"
+                  }`}
+                >
+                  {selectedAthlete.status.acknowledgedAt
+                    ? `Acknowledged at ${new Date(
+                        selectedAthlete.status.acknowledgedAt
+                      ).toLocaleTimeString()}`
+                    : "⚠️ Not acknowledged yet - Follow up immediately!"}
+                </div>
+              )}
+            </div>
+          </div>
 
-                <div className="px-4 py-4 border-t border-gray-200">
-                  <Link
-                    to="/parent/add-child"
-                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          {/* Glucose Chart */}
+          <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">
+                  Glucose History
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Last 10 glucose readings over time
+                </p>
+              </div>
+              <Link to={`/parent/history/${selectedAthleteId}`}>
+                <Button variant="outline" size="sm">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 mr-1.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  View Full History
+                </Button>
+              </Link>
+            </div>
+            <div className="h-[300px] bg-gray-50 rounded-lg p-4">
+              {selectedAthlete.glucoseHistory.length > 0 ? (
+                <GlucoseChart readings={selectedAthlete.glucoseHistory} />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-12 w-12 mb-2 text-gray-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  <p className="text-sm">No glucose history available</p>
+                  <p className="text-xs mt-1">Add a reading to see the chart</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Communication and Emergency Options - Side by side on desktop */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:col-span-3">
+            {/* Send Message */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-lg font-medium text-gray-900 mb-4">
+                Send Message
+              </h2>
+              <fetcher.Form
+                method="post"
+                onSubmit={handleMessageSubmit}
+                className="space-y-4"
+              >
+                <input type="hidden" name="intent" value="send-message" />
+                <input
+                  type="hidden"
+                  name="athleteId"
+                  value={selectedAthleteId || ""}
+                />
+
+                <div>
+                  <Label htmlFor="message-content">Message</Label>
+                  <Textarea
+                    id="message-content"
+                    name="content"
+                    required
+                    className="mt-1"
+                    placeholder="Type your message here..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    id="message-urgent"
+                    name="isUrgent"
+                    type="checkbox"
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <Label
+                    htmlFor="message-urgent"
+                    className="ml-2 block text-sm text-gray-700"
+                  >
+                    Mark as urgent
+                  </Label>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Sending..." : "Send Message"}
+                </Button>
+              </fetcher.Form>
+            </div>
+
+            {/* Emergency Options */}
+            <div className="bg-white rounded-lg shadow p-6 border border-red-100">
+              <h2 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 mr-2 text-red-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+                Emergency Options
+              </h2>
+              <p className="text-sm text-gray-700 mb-4">
+                Use the strobe alert only in emergency situations when immediate
+                attention is required. This will cause {selectedAthlete.name}'s
+                phone to flash between white and red to get their attention.
+              </p>
+
+              <Dialog
+                open={isStrobeDialogOpen}
+                onOpenChange={setIsStrobeDialogOpen}
+              >
+                <DialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    disabled={!selectedAthleteId || isSubmitting}
+                    className="w-full"
                   >
                     <svg
-                      className="h-4 w-4 mr-1"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4 mr-1.5"
                       fill="none"
                       viewBox="0 0 24 24"
-                      strokeWidth="1.5"
                       stroke="currentColor"
                     >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="M12 4.5v15m7.5-7.5h-15"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                       />
                     </svg>
-                    Add Athlete
-                  </Link>
-                </div>
-              </div>
-
-              {/* Quick Links */}
-              <div className="bg-white rounded-lg shadow-md overflow-hidden mt-6">
-                <div className="px-4 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Quick Links
-                  </h3>
-                </div>
-                <div className="px-4 py-4">
-                  <ul className="space-y-2">
-                    <li>
-                      <Link
-                        to="/parent/messages"
-                        className="text-blue-600 hover:text-blue-500 flex items-center"
-                      >
-                        <svg
-                          className="h-4 w-4 mr-2"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth="1.5"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
-                          />
-                        </svg>
-                        Messages
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="/parent/manage-parents"
-                        className="text-blue-600 hover:text-blue-500 flex items-center"
-                      >
-                        <svg
-                          className="h-4 w-4 mr-2"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth="1.5"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
-                          />
-                        </svg>
-                        Manage Parents
-                      </Link>
-                    </li>
-                    {selectedAthlete && (
-                      <li>
-                        <Link
-                          to={`/parent/history/${selectedAthlete.id}`}
-                          className="text-blue-600 hover:text-blue-500 flex items-center"
-                        >
-                          <svg
-                            className="h-4 w-4 mr-2"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth="1.5"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z"
-                            />
-                          </svg>
-                          View {selectedAthlete.name}'s History
-                        </Link>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </div>
+                    Send STROBE Alert
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Confirm STROBE Alert</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to send a STROBE alert to{" "}
+                      {selectedAthlete?.name}? This should only be used in
+                      urgent situations and will cause their phone to flash.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsStrobeDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="destructive" onClick={handleSendStrobe}>
+                      Send Alert
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
-
-            {/* Right Column - Selected Athlete Details */}
-            {selectedAthlete && (
-              <div className="lg:col-span-3 space-y-6">
-                {/* Status Card */}
-                <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="px-6 py-5 border-b border-gray-200">
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-xl font-semibold text-gray-900">
-                        {selectedAthlete.name}'s Status
-                      </h3>
-                      <span
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                          selectedAthlete.status?.type === StatusType.HIGH
-                            ? "bg-black text-white"
-                            : selectedAthlete.status?.type === StatusType.LOW
-                            ? "bg-red-600 text-white"
-                            : "bg-green-100 text-green-800"
-                        }`}
-                      >
-                        {selectedAthlete.status?.type || "OK"}
-                      </span>
-                    </div>
-
-                    {selectedAthlete.glucose && (
-                      <p className="mt-2 text-gray-700">
-                        Last reading:{" "}
-                        <span className="font-medium">
-                          {selectedAthlete.glucose.value}{" "}
-                          {selectedAthlete.glucose.unit}
-                        </span>
-                        <span className="text-sm text-gray-500 ml-2">
-                          {new Date(
-                            selectedAthlete.glucose.recordedAt
-                          ).toLocaleString()}
-                        </span>
-                      </p>
-                    )}
-
-                    {selectedAthlete.status?.type === StatusType.LOW && (
-                      <div
-                        className={`mt-2 text-sm ${
-                          selectedAthlete.status.acknowledgedAt
-                            ? "text-green-600"
-                            : "text-red-600 font-medium"
-                        }`}
-                      >
-                        {selectedAthlete.status.acknowledgedAt
-                          ? `Acknowledged at ${new Date(
-                              selectedAthlete.status.acknowledgedAt
-                            ).toLocaleTimeString()}`
-                          : "⚠️ Not acknowledged yet - Follow up immediately!"}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Update Glucose Form */}
-                  <div className="px-6 py-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">
-                      Update Blood Glucose
-                    </h4>
-                    <form onSubmit={handleGlucoseSubmit} className="space-y-4">
-                      <input
-                        type="hidden"
-                        name="intent"
-                        value="update-glucose"
-                      />
-                      <input
-                        type="hidden"
-                        name="athleteId"
-                        value={selectedAthlete.id}
-                      />
-
-                      <div className="flex items-center space-x-4">
-                        <div className="w-32">
-                          <input
-                            type="number"
-                            name="value"
-                            id="value"
-                            required
-                            step="0.1"
-                            min="0"
-                            placeholder="Glucose value"
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                          />
-                        </div>
-
-                        <div className="w-32">
-                          <select
-                            id="unit"
-                            name="unit"
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                          >
-                            <option value="mg/dL">mg/dL</option>
-                            <option value="mmol/L">mmol/L</option>
-                          </select>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className={`${
-                            isSubmitting
-                              ? "bg-blue-400"
-                              : "bg-blue-600 hover:bg-blue-700"
-                          } inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
-                        >
-                          {isSubmitting ? "Updating..." : "Update"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-
-                {/* Glucose Chart */}
-                {selectedAthlete.glucoseHistory &&
-                  selectedAthlete.glucoseHistory.length > 0 && (
-                    <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                      <div className="px-6 py-5 border-b border-gray-200">
-                        <h3 className="text-lg font-medium text-gray-900">
-                          Recent Glucose Trend
-                        </h3>
-                      </div>
-                      <div className="px-6 py-5">
-                        <GlucoseChart
-                          readings={selectedAthlete.glucoseHistory}
-                        />
-                        <div className="mt-2 text-right">
-                          <Link
-                            to={`/parent/history/${selectedAthlete.id}`}
-                            className="text-sm text-blue-600 hover:text-blue-500"
-                          >
-                            View full history →
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                {/* Message and Alert Controls */}
-                <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="px-6 py-5 border-b border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900">
-                      Send Message
-                    </h3>
-                  </div>
-                  <div className="px-6 py-5">
-                    <form onSubmit={handleMessageSubmit} className="space-y-4">
-                      <input type="hidden" name="intent" value="send-message" />
-                      <input
-                        type="hidden"
-                        name="athleteId"
-                        value={selectedAthlete.id}
-                      />
-
-                      <div>
-                        <textarea
-                          id="content"
-                          name="content"
-                          rows={3}
-                          required
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                          placeholder="Enter your message here..."
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <input
-                            id="isUrgent"
-                            name="isUrgent"
-                            type="checkbox"
-                            value="true"
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <label
-                            htmlFor="isUrgent"
-                            className="ml-2 block text-sm text-gray-900"
-                          >
-                            Mark as urgent
-                          </label>
-                        </div>
-
-                        <div className="flex space-x-3">
-                          <Link
-                            to="/parent/messages"
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          >
-                            View All Messages
-                          </Link>
-
-                          <button
-                            type="submit"
-                            disabled={isSubmitting}
-                            className={`${
-                              isSubmitting
-                                ? "bg-blue-400"
-                                : "bg-blue-600 hover:bg-blue-700"
-                            } inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
-                          >
-                            {isSubmitting ? "Sending..." : "Send Message"}
-                          </button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-
-                {/* Emergency Options */}
-                <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="px-6 py-5 border-b border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900">
-                      Emergency Options
-                    </h3>
-                  </div>
-                  <div className="px-6 py-5">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <svg
-                          className="h-6 w-6 text-red-600"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth="1.5"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-                          />
-                        </svg>
-                      </div>
-                      <div className="ml-3 flex-1">
-                        <p className="text-sm text-gray-700">
-                          Use the strobe alert only in emergency situations when
-                          immediate attention is required. This will cause the
-                          athlete's phone to flash between white and red to get
-                          their attention.
-                        </p>
-                        <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={handleSendStrobe}
-                            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                          >
-                            <svg
-                              className="h-4 w-4 mr-1.5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth="1.5"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
-                              />
-                            </svg>
-                            Send Strobe Alert
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow p-6 text-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-12 w-12 mx-auto text-gray-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+            />
+          </svg>
+          <h3 className="mt-2 text-lg font-medium text-gray-900">
+            No Athletes Added
+          </h3>
+          <p className="mt-1 text-sm text-gray-500">
+            You haven't added any athletes yet. Add an athlete to start
+            monitoring their health.
+          </p>
+          <div className="mt-6">
+            <Link to="/parent/add-child">
+              <Button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 mr-1.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+                  />
+                </svg>
+                Add Athlete
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

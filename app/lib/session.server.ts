@@ -106,6 +106,14 @@ export async function requireParentUser(request: Request): Promise<User> {
   return user;
 }
 
+export async function requireAthleteUser(request: Request): Promise<User> {
+  const user = await requireUser(request);
+  if (user.role !== "ATHLETE") {
+    throw redirect("/");
+  }
+  return user;
+}
+
 export async function logout(request: Request) {
   const session = await getSession(request);
   return redirect("/", {

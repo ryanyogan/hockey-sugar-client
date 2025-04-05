@@ -21,13 +21,21 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
 
+    // Check if this is the first parent user
+    let isAdmin = false;
+    const existingParents = await db.user.findMany({
+      where: { role: "PARENT" },
+    });
+    isAdmin = existingParents.length === 0; // First parent is admin
+
     // Create user
-    const user = await createUser(
-      email.toLowerCase(),
+    const user = await createUser({
+      email: email.toLowerCase(),
       password,
       name,
-      "ATHLETE"
-    );
+      role: "PARENT",
+      isAdmin,
+    });
 
     // Generate JWT token
     const token = jwt.sign(

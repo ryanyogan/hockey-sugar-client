@@ -1,5 +1,25 @@
+import { AlertCircle, ArrowLeft, Send, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { data, Link, useFetcher, useLoaderData } from "react-router";
+import {
+  data,
+  Link,
+  useFetcher,
+  useLoaderData,
+  useNavigate,
+} from "react-router";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
+import { Checkbox } from "~/components/ui/checkbox";
+import { Label } from "~/components/ui/label";
+import { ScrollArea } from "~/components/ui/scroll-area";
+import { Textarea } from "~/components/ui/textarea";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
 import type { Route } from "../+types";
@@ -103,6 +123,7 @@ export async function action({ request }: Route.ActionArgs) {
 export default function ParentMessagesPage() {
   const { parent, athletes, sentMessages } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(
     athletes.length > 0 ? athletes[0].id : null
   );
@@ -132,171 +153,160 @@ export default function ParentMessagesPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
-              <h3 className="text-lg font-medium leading-6 text-gray-900">
-                Athletes
-              </h3>
-            </div>
-
-            <ul className="divide-y divide-gray-200">
-              {athletes.length === 0 ? (
-                <li className="px-4 py-4 text-center text-gray-500">
-                  No athletes found.
-                </li>
-              ) : (
-                athletes.map((athlete) => (
-                  <li
-                    key={athlete.id}
-                    onClick={() => setSelectedAthleteId(athlete.id)}
-                    className={`px-4 py-4 cursor-pointer hover:bg-gray-50 ${
-                      selectedAthleteId === athlete.id ? "bg-blue-50" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900">
-                        {athlete.name}
-                      </p>
-                      <div className="w-2 h-2 rounded-full bg-green-400"></div>
-                    </div>
-                  </li>
-                ))
-              )}
-            </ul>
-
-            <div className="px-4 py-4 sm:px-6 border-t border-gray-200">
-              <Link
-                to="/parent/add-child"
-                className="text-sm text-blue-600 hover:text-blue-500"
-              >
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Communicate with your athletes
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate("/parent")}>
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Back to Dashboard
+            </Button>
+            <Link to="/parent/add-child">
+              <Button>
+                <UserPlus className="h-4 w-4 mr-1.5" />
                 Add Athlete
-              </Link>
-            </div>
+              </Button>
+            </Link>
           </div>
         </div>
+      </div>
 
-        <div className="lg:col-span-2">
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
-              <h3 className="text-lg font-medium leading-6 text-gray-900">
-                Messages
-              </h3>
-              {selectedAthleteId && (
-                <p className="mt-1 text-sm text-gray-500">
-                  Conversation with{" "}
-                  {athletes.find((a) => a.id === selectedAthleteId)?.name}
-                </p>
-              )}
-            </div>
-
-            <div
-              className="px-4 py-5 sm:px-6 flex-1 overflow-y-auto"
-              style={{ maxHeight: "400px" }}
-            >
-              {filteredMessages.length === 0 ? (
-                <p className="text-center text-gray-500">No messages yet.</p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Athletes sidebar */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Athletes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[400px]">
+              {athletes.length === 0 ? (
+                <div className="text-center text-gray-500 py-4">
+                  No athletes found.
+                </div>
               ) : (
-                <ul className="space-y-4">
+                <div className="space-y-1">
+                  {athletes.map((athlete) => (
+                    <div
+                      key={athlete.id}
+                      onClick={() => setSelectedAthleteId(athlete.id)}
+                      className={`p-3 rounded-md cursor-pointer transition-colors ${
+                        selectedAthleteId === athlete.id
+                          ? "bg-blue-50 hover:bg-blue-100"
+                          : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{athlete.name}</span>
+                        <div className="w-2 h-2 rounded-full bg-green-400"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Messages area */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Messages</CardTitle>
+            {selectedAthleteId && (
+              <p className="text-sm text-gray-500">
+                Conversation with{" "}
+                {athletes.find((a) => a.id === selectedAthleteId)?.name}
+              </p>
+            )}
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[400px]">
+              {filteredMessages.length === 0 ? (
+                <div className="text-center text-gray-500 py-4">
+                  No messages yet.
+                </div>
+              ) : (
+                <div className="space-y-4">
                   {filteredMessages.map((message) => (
-                    <li key={message.id} className="bg-gray-50 rounded-lg p-4">
+                    <div key={message.id} className="bg-gray-50 rounded-lg p-4">
                       <div className="flex justify-between items-start">
-                        <p className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500">
                           To: {message.receiver.name}
-                        </p>
-                        <p className="text-xs text-gray-500">
+                        </span>
+                        <span className="text-xs text-gray-500">
                           {new Date(message.createdAt).toLocaleString()}
-                        </p>
+                        </span>
                       </div>
 
-                      <div
-                        className={`mt-2 text-sm ${
-                          message.isUrgent
-                            ? "text-red-600 font-medium"
-                            : "text-gray-700"
-                        }`}
-                      >
+                      <div className="mt-2">
                         {message.isUrgent && (
-                          <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 mr-2">
+                          <Badge variant="destructive" className="mb-2">
+                            <AlertCircle className="h-3 w-3 mr-1" />
                             Urgent
-                          </span>
+                          </Badge>
                         )}
-                        {message.content}
+                        <p className="text-sm text-gray-700">
+                          {message.content}
+                        </p>
                       </div>
 
                       <div className="mt-2 text-xs text-gray-500">
                         {message.read ? "Read" : "Unread"}
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {selectedAthleteId && (
-              <div className="px-4 py-4 sm:px-6 border-t border-gray-200">
-                <fetcher.Form
-                  method="post"
-                  onSubmit={handleSubmit}
-                  className="space-y-4"
-                >
-                  <input type="hidden" name="intent" value="send-message" />
-                  <input
-                    type="hidden"
-                    name="athleteId"
-                    value={selectedAthleteId}
-                  />
-
-                  <div>
-                    <label htmlFor="content" className="sr-only">
-                      Message
-                    </label>
-                    <textarea
-                      id="content"
-                      name="content"
-                      rows={3}
-                      required
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                      placeholder="Type your message here..."
-                    ></textarea>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <input
-                        id="isUrgent"
-                        name="isUrgent"
-                        type="checkbox"
-                        value="true"
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <label
-                        htmlFor="isUrgent"
-                        className="ml-2 block text-sm text-gray-900"
-                      >
-                        Mark as urgent
-                      </label>
                     </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+          {selectedAthleteId && (
+            <CardFooter className="border-t">
+              <fetcher.Form
+                method="post"
+                onSubmit={handleSubmit}
+                className="w-full space-y-4"
+              >
+                <input type="hidden" name="intent" value="send-message" />
+                <input
+                  type="hidden"
+                  name="athleteId"
+                  value={selectedAthleteId}
+                />
 
-                    <button
-                      type="submit"
-                      disabled={fetcher.state !== "idle"}
-                      className={`${
-                        fetcher.state !== "idle"
-                          ? "bg-blue-400"
-                          : "bg-blue-600 hover:bg-blue-700"
-                      } inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
-                    >
-                      {fetcher.state !== "idle" ? "Sending..." : "Send Message"}
-                    </button>
+                <div className="space-y-2">
+                  <Label htmlFor="content" className="sr-only">
+                    Message
+                  </Label>
+                  <Textarea
+                    id="content"
+                    name="content"
+                    rows={3}
+                    required
+                    placeholder="Type your message here..."
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="isUrgent" name="isUrgent" value="true" />
+                    <Label htmlFor="isUrgent">Mark as urgent</Label>
                   </div>
-                </fetcher.Form>
-              </div>
-            )}
-          </div>
-        </div>
+
+                  <Button type="submit" disabled={fetcher.state !== "idle"}>
+                    <Send className="h-4 w-4 mr-1.5" />
+                    {fetcher.state !== "idle" ? "Sending..." : "Send Message"}
+                  </Button>
+                </div>
+              </fetcher.Form>
+            </CardFooter>
+          )}
+        </Card>
       </div>
     </div>
   );

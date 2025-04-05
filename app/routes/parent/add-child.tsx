@@ -6,6 +6,9 @@ import {
   useActionData,
   useNavigation,
 } from "react-router";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
 import { createUser } from "~/lib/auth.server";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
@@ -102,94 +105,34 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
 
-    // Create the athlete account
+    // Create the athlete user
     const athlete = await createUser({
+      name: name as string,
       email: (email as string).toLowerCase(),
       password: password as string,
-      name: name as string,
       role: "ATHLETE",
     });
 
-    console.log("Created athlete:", athlete.id, athlete.name);
-
-    // Find all parents associated with the current parent
-    const associatedParents = await db.parentAthlete.findMany({
-      where: {
-        athleteId: {
-          in: await db.parentAthlete
-            .findMany({
-              where: { parentId: user.id },
-            })
-            .then((relations) => relations.map((r) => r.athleteId)),
-        },
-      },
-      select: { parentId: true },
-      distinct: ["parentId"],
-    });
-
-    console.log("Associated parents:", associatedParents.length);
-    console.log(
-      "Associated parent IDs:",
-      associatedParents.map((p) => p.parentId)
-    );
-
-    // Filter out the current parent from associated parents to avoid duplicates
-    const otherParentIds = associatedParents
-      .map((p) => p.parentId)
-      .filter((id) => id !== user.id);
-
-    console.log("Other parent IDs:", otherParentIds);
-
-    // Create parent-athlete relationships for all parents
-    // First create for the current parent
-    const parentAthleteRelationship = await db.parentAthlete.create({
+    // Create the parent-athlete relationship
+    await db.parentAthlete.create({
       data: {
         parentId: user.id,
         athleteId: athlete.id,
       },
     });
 
-    console.log(
-      "Created parent-athlete relationship:",
-      parentAthleteRelationship.id
-    );
-
-    // Then create for other parents if any exist
-    if (otherParentIds.length > 0) {
-      const otherRelationships = await Promise.all(
-        otherParentIds.map((parentId) =>
-          db.parentAthlete.create({
-            data: {
-              parentId,
-              athleteId: athlete.id,
-            },
-          })
-        )
-      );
-
-      console.log("Created other relationships:", otherRelationships.length);
-    }
-
-    // Verify the relationship was created
-    const verifyRelationship = await db.parentAthlete.findFirst({
-      where: {
-        parentId: user.id,
-        athleteId: athlete.id,
-      },
-    });
-
-    console.log(
-      "Verification:",
-      verifyRelationship ? "Relationship exists" : "Relationship not found"
-    );
-
     return redirect("/parent");
   } catch (error) {
     console.error("Error adding child:", error);
+    const formData = await request.formData();
     return data<ActionData>(
       {
         errors: {
           form: "An error occurred while adding the athlete. Please try again.",
+        },
+        values: {
+          name: formData.get("name") as string,
+          email: formData.get("email") as string,
         },
       },
       { status: 500 }
@@ -203,140 +146,189 @@ export default function AddChildPage() {
   const isSubmitting = navigation.state === "submitting";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-600 shadow">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Add Athlete
-          </h1>
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <Link to="/parent" className="text-white hover:text-blue-100">
-              Back to Dashboard
-            </Link>
+            <h1 className="text-2xl font-bold text-gray-900">Add Athlete</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Create a new athlete account to monitor their health data
+            </p>
           </div>
+          <Link to="/parent">
+            <Button variant="outline">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4 mr-1.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                />
+              </svg>
+              Back to Dashboard
+            </Button>
+          </Link>
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-md px-4 py-8 sm:px-6 lg:px-8">
-        <div className="bg-white shadow rounded-lg p-6">
-          {actionData?.errors?.form && (
-            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-              {actionData.errors.form}
-            </div>
-          )}
-
-          <Form method="post" className="space-y-6">
-            <div>
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium text-gray-700"
+      {/* Form card */}
+      <div className="bg-white rounded-lg shadow p-6">
+        {actionData?.errors?.form && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+            <div className="flex items-center">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 mr-2 text-red-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                Athlete's Name
-              </label>
-              <div className="mt-1">
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  defaultValue={actionData?.values?.name || ""}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                 />
-                {actionData?.errors?.name && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {actionData.errors.name}
-                  </p>
-                )}
-              </div>
+              </svg>
+              <span>{actionData.errors.form}</span>
+            </div>
+          </div>
+        )}
+
+        <Form method="post" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="name">Athlete's Name</Label>
+              <Input
+                id="name"
+                name="name"
+                type="text"
+                required
+                defaultValue={actionData?.values?.name || ""}
+                className="mt-1"
+                placeholder="Enter athlete's name"
+              />
+              {actionData?.errors?.name && (
+                <p className="mt-1 text-sm text-red-600">
+                  {actionData.errors.name}
+                </p>
+              )}
             </div>
 
             <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Athlete's Email Address
-              </label>
-              <div className="mt-1">
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  defaultValue={actionData?.values?.email || ""}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                />
-                {actionData?.errors?.email && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {actionData.errors.email}
-                  </p>
-                )}
-              </div>
+              <Label htmlFor="email">Athlete's Email Address</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                defaultValue={actionData?.values?.email || ""}
+                className="mt-1"
+                placeholder="athlete@example.com"
+              />
+              {actionData?.errors?.email && (
+                <p className="mt-1 text-sm text-red-600">
+                  {actionData.errors.email}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                required
+                className="mt-1"
+                placeholder="Create a password"
+              />
+              {actionData?.errors?.password && (
+                <p className="mt-1 text-sm text-red-600">
+                  {actionData.errors.password}
+                </p>
+              )}
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Password
-              </label>
-              <div className="mt-1">
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                />
-                {actionData?.errors?.password && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {actionData.errors.password}
-                  </p>
-                )}
-              </div>
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                required
+                className="mt-1"
+                placeholder="Confirm password"
+              />
+              {actionData?.errors?.confirmPassword && (
+                <p className="mt-1 text-sm text-red-600">
+                  {actionData.errors.confirmPassword}
+                </p>
+              )}
             </div>
+          </div>
 
-            <div>
-              <label
-                htmlFor="confirmPassword"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Confirm Password
-              </label>
-              <div className="mt-1">
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                />
-                {actionData?.errors?.confirmPassword && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {actionData.errors.confirmPassword}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className={`${
-                  isSubmitting ? "bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
-                } flex w-full justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
-              >
-                {isSubmitting ? "Adding Athlete..." : "Add Athlete"}
-              </button>
-            </div>
-          </Form>
-        </div>
-      </main>
+          <div className="pt-4">
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <svg
+                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Adding Athlete...
+                </>
+              ) : (
+                <>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 mr-1.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+                    />
+                  </svg>
+                  Add Athlete
+                </>
+              )}
+            </Button>
+          </div>
+        </Form>
+      </div>
     </div>
   );
 }

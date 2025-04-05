@@ -1,10 +1,26 @@
 import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
+import {
   Form,
   Link,
   useActionData,
   useLoaderData,
   useNavigate,
 } from "react-router";
+import { Button } from "~/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
 import type { User } from "~/types";
@@ -127,85 +143,97 @@ export default function ManageParentsPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold">Manage Parents</h1>
-        <button
-          onClick={() => navigate("/parent")}
-          className="text-blue-600 hover:text-blue-800"
-        >
-          Back to Dashboard
-        </button>
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Manage Parents</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              View and manage parents associated with your athletes
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate("/parent")}>
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Back to Dashboard
+            </Button>
+            <Link to="/parent/add-parent">
+              <Button>
+                <UserPlus className="h-4 w-4 mr-1.5" />
+                Add New Parent
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
 
+      {/* Main content */}
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="mb-4">
-          <p className="text-gray-600">
-            Note: Parents may also be coaches. This is only reflected in the UI
-            display.
-          </p>
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 mr-2 text-blue-500" />
+            <span>
+              Note: Parents may also be coaches. This is only reflected in the
+              UI display.
+            </span>
+          </div>
         </div>
 
         {actionData?.error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-            {actionData.error}
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+              <span>{actionData.error}</span>
+            </div>
           </div>
         )}
 
         {actionData?.success && (
-          <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">
-            {actionData.success}
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
+            <div className="flex items-center">
+              <CheckCircle className="h-5 w-5 mr-2 text-green-500" />
+              <span>{actionData.success}</span>
+            </div>
           </div>
         )}
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Role
-                </th>
-                {currentUser.isAdmin && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                {currentUser.isAdmin && <TableHead>Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {parents.map((parent) => (
-                <tr key={parent.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {parent.name}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{parent.email}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">
-                      {parent.role}
-                      {parent.isAdmin && " (Admin)"}
-                    </div>
-                  </td>
+                <TableRow key={parent.id}>
+                  <TableCell className="font-medium">{parent.name}</TableCell>
+                  <TableCell>{parent.email}</TableCell>
+                  <TableCell>
+                    {parent.role}
+                    {parent.isAdmin && (
+                      <span className="ml-1 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">
+                        Admin
+                      </span>
+                    )}
+                  </TableCell>
                   {currentUser.isAdmin && parent.id !== currentUser.id && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <TableCell>
                       <Form method="post">
                         <input
                           type="hidden"
                           name="parentId"
                           value={parent.id}
                         />
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           type="submit"
-                          className="text-red-600 hover:text-red-900"
+                          className="text-red-600 hover:text-red-900 hover:bg-red-50"
                           onClick={(e) => {
                             if (
                               !confirm(
@@ -216,24 +244,16 @@ export default function ManageParentsPage() {
                             }
                           }}
                         >
+                          <Trash2 className="h-4 w-4 mr-1" />
                           Remove
-                        </button>
+                        </Button>
                       </Form>
-                    </td>
+                    </TableCell>
                   )}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-6">
-          <Link
-            to="/parent/add-parent"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Add New Parent
-          </Link>
+            </TableBody>
+          </Table>
         </div>
       </div>
     </div>

@@ -1,4 +1,28 @@
-import { data, Form, Link, useActionData, useLoaderData } from "react-router";
+import { AlertCircle, ArrowLeft, CheckCircle, UserPlus } from "lucide-react";
+import {
+  data,
+  Form,
+  useActionData,
+  useLoaderData,
+  useNavigate,
+} from "react-router";
+import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { createUser } from "~/lib/auth.server";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
@@ -29,10 +53,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  console.log("Action function called");
   const user = await requireParentUser(request);
+  console.log("User authenticated:", user.id, user.name, user.isAdmin);
 
   // Only admin can add new parents
   if (!user.isAdmin) {
+    console.log("User is not an admin");
     return data(
       { errors: { form: "Only administrators can add new parents" } },
       { status: 403 }
@@ -44,6 +71,8 @@ export async function action({ request }: Route.ActionArgs) {
   const password = formData.get("password");
   const name = formData.get("name");
   const role = formData.get("role");
+
+  console.log("Form data received:", { email, name, role });
 
   if (
     !email ||
@@ -80,13 +109,22 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  // Check if this is the first parent user
+  let isAdmin = false;
+  if (role === "PARENT") {
+    const existingParents = await db.user.findMany({
+      where: { role: "PARENT" },
+    });
+    isAdmin = existingParents.length === 0; // First parent is admin
+  }
+
   // Create new parent user
   const newParent = await createUser({
     email: email.toLowerCase(),
     password,
     name,
     role: role as "PARENT" | "COACH",
-    isAdmin: false, // New parents are never admins
+    isAdmin,
   });
 
   // Get all athletes associated with the admin
@@ -122,141 +160,119 @@ export async function action({ request }: Route.ActionArgs) {
 export default function AddParentPage() {
   const { user } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-600 shadow">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Add New Parent/Coach
-          </h1>
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <Link
-              to="/parent/manage-parents"
-              className="text-white hover:text-blue-100"
+            <h1 className="text-2xl font-bold text-gray-900">
+              Add New Parent/Coach
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Create a new parent or coach account
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/parent/manage-parents")}
             >
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
               Back to Parents
-            </Link>
+            </Button>
           </div>
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <div className="p-6">
-            {actionData?.errors?.form && (
-              <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-                {actionData.errors.form}
+      {/* Main content */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Parent/Coach Information</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {actionData?.errors?.form && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+                <span>{actionData.errors.form}</span>
               </div>
-            )}
-            {actionData?.success && (
-              <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">
-                {actionData.success}
+            </div>
+          )}
+          {actionData?.success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
+              <div className="flex items-center">
+                <CheckCircle className="h-5 w-5 mr-2 text-green-500" />
+                <span>{actionData.success}</span>
               </div>
-            )}
+            </div>
+          )}
 
-            <Form method="post" className="space-y-6">
-              <div>
-                <label
-                  htmlFor="name"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Name
-                </label>
-                <div className="mt-1">
-                  <input
-                    type="text"
-                    name="name"
-                    id="name"
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                  {actionData?.errors?.name && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {actionData.errors.name}
-                    </p>
-                  )}
-                </div>
-              </div>
+          <Form
+            method="post"
+            className="space-y-6"
+            id="parent-form"
+            onSubmit={(e) => {
+              console.log("Form submitted");
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input type="text" name="name" id="name" required />
+              {actionData?.errors?.name && (
+                <p className="text-sm text-red-600">{actionData.errors.name}</p>
+              )}
+            </div>
 
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Email
-                </label>
-                <div className="mt-1">
-                  <input
-                    type="email"
-                    name="email"
-                    id="email"
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                  {actionData?.errors?.email && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {actionData.errors.email}
-                    </p>
-                  )}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input type="email" name="email" id="email" required />
+              {actionData?.errors?.email && (
+                <p className="text-sm text-red-600">
+                  {actionData.errors.email}
+                </p>
+              )}
+            </div>
 
-              <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Password
-                </label>
-                <div className="mt-1">
-                  <input
-                    type="password"
-                    name="password"
-                    id="password"
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                  {actionData?.errors?.password && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {actionData.errors.password}
-                    </p>
-                  )}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input type="password" name="password" id="password" required />
+              {actionData?.errors?.password && (
+                <p className="text-sm text-red-600">
+                  {actionData.errors.password}
+                </p>
+              )}
+            </div>
 
-              <div>
-                <label
-                  htmlFor="role"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Role
-                </label>
-                <div className="mt-1">
-                  <select
-                    id="role"
-                    name="role"
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  >
-                    <option value="PARENT">Parent</option>
-                    <option value="COACH">Coach</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                >
-                  Add Parent/Coach
-                </button>
-              </div>
-            </Form>
-          </div>
-        </div>
-      </main>
+            <div className="space-y-2">
+              <Label htmlFor="role">Role</Label>
+              <Select name="role" required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PARENT">Parent</SelectItem>
+                  <SelectItem value="COACH">Coach</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </Form>
+        </CardContent>
+        <CardFooter className="flex justify-end">
+          <Button
+            type="submit"
+            form="parent-form"
+            onClick={() => {
+              console.log("Submit button clicked");
+            }}
+          >
+            <UserPlus className="h-4 w-4 mr-1.5" />
+            Add Parent/Coach
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }
