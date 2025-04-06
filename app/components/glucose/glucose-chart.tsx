@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { StatusType } from "~/components/status/status-display";
+import { PrismaStatusType } from "~/types/prisma";
 
 interface GlucoseReading {
   id: string;
@@ -16,7 +16,7 @@ interface GlucoseReading {
   unit: string;
   recordedAt: string;
   status?: {
-    type: StatusType;
+    type: PrismaStatusType;
     acknowledgedAt: string | null;
   } | null;
 }

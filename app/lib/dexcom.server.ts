@@ -183,6 +183,7 @@ export async function updateAthleteGlucoseFromDexcom(
         userId: athleteId,
         recordedById: athleteId,
         statusId: status.id,
+        source: "dexcom",
       },
     });
 

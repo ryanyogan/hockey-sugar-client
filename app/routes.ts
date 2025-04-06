@@ -24,6 +24,7 @@ export default [
       route("add-parent", "./routes/parent/add-parent.tsx"),
       route("history/:athleteId", "./routes/parent/history.tsx"),
       route("messages", "./routes/parent/messages.tsx"),
+      route("glucose-history", "./routes/glucose-history.tsx"),
     ]),
   ]),
 

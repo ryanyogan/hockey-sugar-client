@@ -27,6 +27,7 @@ model User {
   recordedReadings GlucoseReading[] @relation("RecordedReadings")
   statuses         Status[]
   dexcomToken      DexcomToken?
+  preferences      UserPreferences?
 
   @@index([email])
 }
@@ -115,6 +116,18 @@ model DexcomToken {
   expiresAt    DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model UserPreferences {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lowThreshold  Int      @default(70)
+  highThreshold Int      @default(180)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
 }

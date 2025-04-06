@@ -37,11 +37,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import { Slider } from "~/components/ui/slider";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
 import type { PrismaStatusType as PrismaStatusTypeType } from "~/types/prisma";
 import { PrismaStatusType } from "~/types/prisma";
 import type { Route } from "../+types";
+
+// Dexcom API constants
+const USE_SANDBOX = true;
+const CLIENT_ID = "7hb0UP16z9PSQgr7VAXziGOFhtMOAwVC";
+const CLIENT_SECRET = "o5uesNyh9zY2gOGP";
 
 type GlucoseReading = {
   id: string;
@@ -77,6 +83,12 @@ type Athlete = {
   glucoseHistory: GlucoseReading[];
 };
 
+type DexcomToken = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: Date;
+};
+
 type LoaderData = {
   user: {
     id: string;
@@ -90,9 +102,10 @@ type LoaderData = {
     name: string;
   }[];
   selectedAthlete: Athlete | null;
-  dexcomToken: {
-    accessToken: string;
-    refreshToken: string;
+  dexcomToken: DexcomToken | null;
+  preferences: {
+    lowThreshold: number;
+    highThreshold: number;
   } | null;
 };
 
@@ -377,11 +390,34 @@ export async function loader({ request }: Route.LoaderArgs) {
     },
   });
 
+  // Get the user's preferences
+  const preferences = await db.userPreferences.findUnique({
+    where: {
+      userId: user.id,
+    },
+    select: {
+      lowThreshold: true,
+      highThreshold: true,
+    },
+  });
+
+  // If preferences don't exist, create default ones
+  if (!preferences) {
+    await db.userPreferences.create({
+      data: {
+        userId: user.id,
+        lowThreshold: 70,
+        highThreshold: 180,
+      },
+    });
+  }
+
   return data<LoaderData>({
     user,
     athletes,
     selectedAthlete,
     dexcomToken,
+    preferences: preferences || { lowThreshold: 70, highThreshold: 180 },
   });
 }
 
@@ -418,6 +454,16 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ error: "Athlete not found" }, { status: 404 });
     }
 
+    // Get user preferences for thresholds
+    const preferences = await db.userPreferences.findUnique({
+      where: {
+        userId: user.id,
+      },
+    });
+
+    const lowThreshold = preferences?.lowThreshold || 70;
+    const highThreshold = preferences?.highThreshold || 180;
+
     // Determine status based on glucose value
     const numericValue = Number(value);
     let statusType = StatusType.OK;
@@ -426,10 +472,10 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ error: "Invalid glucose value" }, { status: 400 });
     }
 
-    // Basic thresholds - should be customizable per athlete in a real app
-    if (numericValue < 70) {
+    // Use custom thresholds
+    if (numericValue < lowThreshold) {
       statusType = StatusType.LOW;
-    } else if (numericValue > 180) {
+    } else if (numericValue > highThreshold) {
       statusType = StatusType.HIGH;
     }
 
@@ -532,13 +578,24 @@ export async function action({ request }: Route.ActionArgs) {
 
     if (!dexcomToken) {
       console.log("No Dexcom token found");
-      return data({ error: "Dexcom token not found" }, { status: 400 });
+      return data(
+        { error: "Dexcom token not found", needsReauth: true },
+        { status: 400 }
+      );
     }
 
-    // Check if token is expired
-    if (dexcomToken.expiresAt < new Date()) {
-      console.log("Dexcom token expired");
-      return data({ error: "Dexcom token expired" }, { status: 400 });
+    // Check if token is expired or about to expire (within 5 minutes)
+    const isExpired = new Date(dexcomToken.expiresAt) < new Date();
+    const isExpiringSoon =
+      new Date(dexcomToken.expiresAt) < new Date(Date.now() + 5 * 60 * 1000);
+
+    if (isExpired || isExpiringSoon) {
+      console.log("Dexcom token expired or expiring soon");
+      // The server will handle the refresh, but we'll show a message
+      return data(
+        { error: "Refreshing Dexcom connection...", needsReauth: true },
+        { status: 400 }
+      );
     }
 
     // Get the athlete
@@ -594,6 +651,15 @@ export async function action({ request }: Route.ActionArgs) {
       if (!response.ok) {
         const errorData = await response.json();
         console.error("Dexcom API error:", errorData);
+
+        // If we get a 401, the token might be invalid even after refresh
+        if (response.status === 401) {
+          return data(
+            { error: "Dexcom token invalid", needsReauth: true },
+            { status: 401 }
+          );
+        }
+
         throw new Error(
           `Failed to get Dexcom readings: ${
             errorData.error_description || response.statusText
@@ -632,13 +698,24 @@ export async function action({ request }: Route.ActionArgs) {
         }
       }
 
+      // Get user preferences for thresholds
+      const preferences = await db.userPreferences.findUnique({
+        where: {
+          userId: user.id,
+        },
+      });
+
+      const lowThreshold = preferences?.lowThreshold || 70;
+      const highThreshold = preferences?.highThreshold || 180;
+
       // Determine the status based on the glucose value
       const value = latestReading.value;
       let statusType = StatusType.OK;
 
-      if (value < 70) {
+      // Use custom thresholds
+      if (value < lowThreshold) {
         statusType = StatusType.LOW;
-      } else if (value > 180) {
+      } else if (value > highThreshold) {
         statusType = StatusType.HIGH;
       }
 
@@ -711,11 +788,53 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ success: true });
   }
 
+  if (intent === "update-preferences") {
+    const lowThreshold = formData.get("lowThreshold");
+    const highThreshold = formData.get("highThreshold");
+
+    if (
+      typeof lowThreshold !== "string" ||
+      typeof highThreshold !== "string" ||
+      isNaN(Number(lowThreshold)) ||
+      isNaN(Number(highThreshold))
+    ) {
+      return data({ error: "Invalid threshold values" }, { status: 400 });
+    }
+
+    const lowValue = Number(lowThreshold);
+    const highValue = Number(highThreshold);
+
+    if (lowValue >= highValue) {
+      return data(
+        { error: "Low threshold must be less than high threshold" },
+        { status: 400 }
+      );
+    }
+
+    // Update or create preferences
+    await db.userPreferences.upsert({
+      where: {
+        userId: user.id,
+      },
+      update: {
+        lowThreshold: lowValue,
+        highThreshold: highValue,
+      },
+      create: {
+        userId: user.id,
+        lowThreshold: lowValue,
+        highThreshold: highValue,
+      },
+    });
+
+    return data({ success: true });
+  }
+
   return data({ error: "Invalid intent" }, { status: 400 });
 }
 
 export default function ParentDashboard() {
-  const { user, athletes, selectedAthlete, dexcomToken } =
+  const { user, athletes, selectedAthlete, dexcomToken, preferences } =
     useLoaderData<typeof loader>();
   const context = useOutletContext<{
     selectedAthleteId: string | null;
@@ -725,6 +844,7 @@ export default function ParentDashboard() {
     success?: boolean;
     error?: string;
     noNewData?: boolean;
+    needsReauth?: boolean;
   }>();
   const [isStrobeDialogOpen, setIsStrobeDialogOpen] = useState(false);
   const [isDexcomDialogOpen, setIsDexcomDialogOpen] = useState(false);
@@ -735,6 +855,13 @@ export default function ParentDashboard() {
     useState(false);
   const [athleteToRemove, setAthleteToRemove] = useState<string | null>(null);
   const [isRemovingAthlete, setIsRemovingAthlete] = useState(false);
+  const [lowThreshold, setLowThreshold] = useState(
+    preferences?.lowThreshold || 70
+  );
+  const [highThreshold, setHighThreshold] = useState(
+    preferences?.highThreshold || 180
+  );
+  const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
   const navigate = useNavigate();
 
   // Show the remove athlete dialog if there are multiple athletes
@@ -774,7 +901,23 @@ export default function ParentDashboard() {
 
   // Function to refresh Dexcom data
   const refreshDexcomData = async () => {
-    if (!dexcomToken) return;
+    if (!dexcomToken) {
+      setDexcomError("No Dexcom connection found. Please connect to Dexcom.");
+      setIsDexcomConnected(false);
+      setIsDexcomDialogOpen(true);
+      return;
+    }
+
+    // Check if token is expired or about to expire (within 5 minutes)
+    const isExpired = new Date(dexcomToken.expiresAt) < new Date();
+    const isExpiringSoon =
+      new Date(dexcomToken.expiresAt) < new Date(Date.now() + 5 * 60 * 1000);
+
+    if (isExpired || isExpiringSoon) {
+      console.log("Dexcom token expired or expiring soon");
+      // The server will handle the refresh, but we'll show a message
+      setDexcomError("Refreshing Dexcom connection...");
+    }
 
     setIsRefreshing(true);
     setDexcomError(null);
@@ -788,7 +931,6 @@ export default function ParentDashboard() {
     } catch (error) {
       console.error("Error refreshing Dexcom data:", error);
       setDexcomError("Failed to refresh Dexcom data");
-    } finally {
       setIsRefreshing(false);
     }
   };
@@ -808,8 +950,13 @@ export default function ParentDashboard() {
       } else if (fetcher.data?.noNewData) {
         // Show alert for no new data
         alert("Dexcom has not provided a new value yet");
+      } else if (fetcher.data?.needsReauth) {
+        // Token expired or invalid, need to reauthorize
+        setDexcomError("Dexcom connection expired. Please reconnect.");
+        setIsDexcomConnected(false);
+        setIsDexcomDialogOpen(true);
       } else if (fetcher.data && !fetcher.data.success) {
-        setDexcomError("Failed to refresh Dexcom data");
+        setDexcomError(fetcher.data.error || "Failed to refresh Dexcom data");
       }
     }
   }, [fetcher.state, fetcher.data]);
@@ -857,6 +1004,17 @@ export default function ParentDashboard() {
   };
 
   const isSubmitting = fetcher.state !== "idle";
+
+  // Function to update preferences
+  const updatePreferences = () => {
+    const formData = new FormData();
+    formData.append("intent", "update-preferences");
+    formData.append("lowThreshold", lowThreshold.toString());
+    formData.append("highThreshold", highThreshold.toString());
+
+    fetcher.submit(formData, { method: "post" });
+    setIsPreferencesDialogOpen(false);
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -912,6 +1070,64 @@ export default function ParentDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Preferences Dialog */}
+      <Dialog
+        open={isPreferencesDialogOpen}
+        onOpenChange={setIsPreferencesDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Glucose Thresholds</DialogTitle>
+            <DialogDescription>
+              Set your custom low and high glucose thresholds
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-6">
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="low-threshold">Low Threshold</Label>
+                <span className="text-sm font-medium">
+                  {lowThreshold} mg/dL
+                </span>
+              </div>
+              <Slider
+                id="low-threshold"
+                min={40}
+                max={highThreshold - 1}
+                step={1}
+                value={[lowThreshold]}
+                onValueChange={(value) => setLowThreshold(value[0])}
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="high-threshold">High Threshold</Label>
+                <span className="text-sm font-medium">
+                  {highThreshold} mg/dL
+                </span>
+              </div>
+              <Slider
+                id="high-threshold"
+                min={lowThreshold + 1}
+                max={300}
+                step={1}
+                value={[highThreshold]}
+                onValueChange={(value) => setHighThreshold(value[0])}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsPreferencesDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={updatePreferences}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {selectedAthlete ? (
         <div className="space-y-6">
           {/* Current Status Card */}
@@ -925,9 +1141,9 @@ export default function ParentDashboard() {
                   Current Status and Latest Reading
                 </CardDescription>
               </div>
-              <div className="mt-4 sm:mt-0 flex flex-row items-center gap-2 w-full">
+              <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row items-center gap-2 w-full">
                 {isDexcomConnected ? (
-                  <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm w-1/3 justify-center">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm w-full sm:w-1/3 justify-center">
                     <div className="w-2 h-2 rounded-full bg-green-500" />
                     <span>Connected to Dexcom</span>
                   </div>
@@ -941,7 +1157,7 @@ export default function ParentDashboard() {
                         variant="outline"
                         size="sm"
                         onClick={() => setIsDexcomDialogOpen(true)}
-                        className="w-1/2"
+                        className="w-full sm:w-1/2"
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -979,7 +1195,7 @@ export default function ParentDashboard() {
                     size="sm"
                     onClick={refreshDexcomData}
                     disabled={isRefreshing}
-                    className="w-1/3"
+                    className="w-full sm:w-1/3"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -1007,7 +1223,7 @@ export default function ParentDashboard() {
                       variant="destructive"
                       size="sm"
                       disabled={!selectedAthleteId || isSubmitting}
-                      className="w-1/3"
+                      className="w-full sm:w-1/3"
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -1132,15 +1348,27 @@ export default function ParentDashboard() {
               <div className="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-red-600"></div>
-                  <span>Low: &lt;100</span>
+                  <span>Low: &lt;{preferences?.lowThreshold || 70}</span>
                 </div>
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-600"></div>
-                  <span>OK: 100-249</span>
+                  <span>
+                    OK: {preferences?.lowThreshold || 70}-
+                    {preferences?.highThreshold || 180}
+                  </span>
                 </div>
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-black"></div>
-                  <span>High: 250+</span>
+                  <span>High: &gt;{preferences?.highThreshold || 180}</span>
+                </div>
+                <div className="col-span-3 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsPreferencesDialogOpen(true)}
+                  >
+                    Customize Thresholds
+                  </Button>
                 </div>
               </div>
             </CardContent>
