@@ -10,10 +10,6 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 
-// Dexcom API endpoints
-const DEXCOM_AUTH_URL = "https://api.dexcom.com/v2/oauth2/auth";
-const SANDBOX_AUTH_URL = "https://sandbox-api.dexcom.com/v2/oauth2/auth";
-
 // Use sandbox for development
 const USE_SANDBOX = true;
 
