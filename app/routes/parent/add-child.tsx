@@ -31,13 +31,23 @@ type ActionData = {
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireParentUser(request);
 
-  return data({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
+  // Check if the user already has an athlete
+  const existingAthlete = await db.user.findFirst({
+    where: {
+      role: "ATHLETE",
+      athleteParents: {
+        some: {
+          parentId: user.id,
+        },
+      },
     },
   });
+
+  if (existingAthlete) {
+    return redirect("/parent");
+  }
+
+  return data({ user });
 }
 
 export async function action({ request }: Route.ActionArgs) {

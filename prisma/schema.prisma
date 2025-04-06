@@ -26,6 +26,7 @@ model User {
   glucoseReadings  GlucoseReading[]
   recordedReadings GlucoseReading[] @relation("RecordedReadings")
   statuses         Status[]
+  dexcomToken      DexcomToken?
 
   @@index([email])
 }
@@ -50,6 +51,7 @@ model GlucoseReading {
   recordedBy   User     @relation("RecordedReadings", fields: [recordedById], references: [id], onDelete: Cascade)
   status       Status?  @relation(fields: [statusId], references: [id])
   statusId     String?
+  source       String?  @default("manual")
 
   @@index([userId])
   @@index([recordedById])
@@ -102,4 +104,17 @@ model ParentAthlete {
   @@unique([parentId, athleteId])
   @@index([parentId])
   @@index([athleteId])
+}
+
+model DexcomToken {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
 }

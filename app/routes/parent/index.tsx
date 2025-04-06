@@ -1,16 +1,24 @@
-import type { StatusType as PrismaStatusType } from "@prisma/client";
 import { useEffect, useState } from "react";
 import {
   data,
   Link,
+  redirect,
   useFetcher,
   useLoaderData,
   useNavigate,
   useOutletContext,
 } from "react-router";
+import { DexcomAuth } from "~/components/dexcom-auth";
 import { GlucoseChart } from "~/components/glucose/glucose-chart";
 import { StatusType } from "~/components/status/status-display";
 import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -29,16 +37,140 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { Textarea } from "~/components/ui/textarea";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
+import type { PrismaStatusType as PrismaStatusTypeType } from "~/types/prisma";
+import { PrismaStatusType } from "~/types/prisma";
 import type { Route } from "../+types";
+
+type GlucoseReading = {
+  id: string;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  userId: string;
+  recordedById: string;
+  statusId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  source?: "manual" | "dexcom";
+  status?: {
+    type: StatusType;
+    acknowledgedAt: string | null;
+  } | null;
+};
+
+type Status = {
+  id: string;
+  type: StatusType;
+  acknowledgedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type Athlete = {
+  id: string;
+  name: string;
+  unreadMessagesCount: number;
+  status: Status | null;
+  glucose?: GlucoseReading | null;
+  glucoseHistory: GlucoseReading[];
+};
+
+type LoaderData = {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    isAdmin: boolean;
+  };
+  athletes: {
+    id: string;
+    name: string;
+  }[];
+  selectedAthlete: Athlete | null;
+  dexcomToken: {
+    accessToken: string;
+    refreshToken: string;
+  } | null;
+};
+
+type AthleteSelect = {
+  id: true;
+  name: true;
+  receivedMessages: {
+    where: {
+      read: boolean;
+      senderId: string;
+    };
+    select: {
+      id: true;
+    };
+  };
+  statuses: {
+    orderBy: {
+      createdAt: "desc";
+    };
+    take: number;
+    select: {
+      id: true;
+      type: true;
+      acknowledgedAt: true;
+      createdAt: true;
+      updatedAt: true;
+    };
+  };
+  glucoseReadings: {
+    orderBy: {
+      recordedAt: "desc";
+    };
+    take: number;
+    select: {
+      id: true;
+      value: true;
+      unit: true;
+      recordedAt: true;
+      userId: true;
+      recordedById: true;
+      statusId: true;
+      createdAt: true;
+      updatedAt: true;
+    };
+  };
+};
+
+type AthleteResult = {
+  id: string;
+  name: string;
+  receivedMessages: ReadonlyArray<{ id: string }>;
+  statuses: ReadonlyArray<{
+    id: string;
+    type: PrismaStatusTypeType;
+    acknowledgedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+  glucoseReadings: ReadonlyArray<{
+    id: string;
+    value: number;
+    unit: string;
+    recordedAt: Date;
+    userId: string;
+    recordedById: string;
+    statusId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+};
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireParentUser(request);
-  console.log("Current parent user:", user.id, user.name, user.role);
+  const url = new URL(request.url);
+  const athleteId = url.searchParams.get("athleteId");
+  const athleteRemoved = url.searchParams.get("athleteRemoved") === "true";
 
-  // Get all athletes associated with this parent
+  // Get all athletes for the parent
   const athletes = await db.user.findMany({
     where: {
       role: "ATHLETE",
@@ -48,125 +180,208 @@ export async function loader({ request }: Route.LoaderArgs) {
         },
       },
     },
-    include: {
-      athleteParents: {
-        include: {
-          parent: true,
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  // If an athlete was just removed, redirect to refresh the page
+  if (athleteRemoved) {
+    return redirect("/parent");
+  }
+
+  // Get the selected athlete
+  let selectedAthlete = null;
+  if (athleteId) {
+    const athlete = await db.user.findFirst({
+      where: {
+        id: athleteId,
+        role: "ATHLETE",
+        athleteParents: {
+          some: {
+            parentId: user.id,
+          },
         },
       },
-    },
-    orderBy: { name: "asc" },
-  });
-
-  console.log("Found athletes:", athletes.length);
-  console.log(
-    "Athletes:",
-    athletes.map((a) => ({
-      id: a.id,
-      name: a.name,
-      parents: a.athleteParents.map((ap) => ap.parent.name),
-    }))
-  );
-
-  // For each athlete, get their latest status and glucose readings
-  const athletesWithData = await Promise.all(
-    athletes.map(async (athlete) => {
-      const latestStatus = await db.status.findFirst({
-        where: { userId: athlete.id },
-        orderBy: { createdAt: "desc" },
-      });
-
-      const latestGlucose = await db.glucoseReading.findFirst({
-        where: { userId: athlete.id },
-        orderBy: { recordedAt: "desc" },
-      });
-
-      // Get recent glucose history for chart
-      const glucoseHistory = await db.glucoseReading.findMany({
-        where: { userId: athlete.id },
-        orderBy: { recordedAt: "desc" },
-        take: 10,
-        include: {
-          status: true,
+      select: {
+        id: true,
+        name: true,
+        receivedMessages: {
+          where: {
+            read: false,
+            senderId: user.id,
+          },
+          select: {
+            id: true,
+          },
         },
-      });
-
-      // Transform glucose history to match GlucoseChart component's expected format
-      const transformedGlucoseHistory = glucoseHistory.map((reading) => ({
-        id: reading.id,
-        value: reading.value,
-        unit: reading.unit,
-        recordedAt: reading.recordedAt.toISOString(),
-        status: reading.status
-          ? {
-              type: reading.status.type as StatusType,
-              acknowledgedAt:
-                reading.status.acknowledgedAt?.toISOString() ?? null,
-            }
-          : null,
-      }));
-
-      // Get unread messages count
-      const unreadMessagesCount = await db.message.count({
-        where: {
-          senderId: user.id,
-          receiverId: athlete.id,
-          read: false,
+        statuses: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 1,
+          select: {
+            id: true,
+            type: true,
+            acknowledgedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
         },
-      });
+        glucoseReadings: {
+          orderBy: {
+            recordedAt: "desc",
+          },
+          take: 10,
+          select: {
+            id: true,
+            value: true,
+            unit: true,
+            recordedAt: true,
+            userId: true,
+            recordedById: true,
+            statusId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
 
-      return {
-        ...athlete,
-        status: latestStatus
+    if (athlete) {
+      selectedAthlete = {
+        id: athlete.id,
+        name: athlete.name,
+        unreadMessagesCount: athlete.receivedMessages.length,
+        status: athlete.statuses[0]
           ? {
-              ...latestStatus,
+              ...athlete.statuses[0],
+              type: athlete.statuses[0].type as StatusType,
               acknowledgedAt:
-                latestStatus.acknowledgedAt?.toISOString() ?? null,
-              createdAt: latestStatus.createdAt.toISOString(),
-              updatedAt: latestStatus.updatedAt.toISOString(),
+                athlete.statuses[0].acknowledgedAt?.toISOString() ?? null,
+              createdAt: athlete.statuses[0].createdAt.toISOString(),
+              updatedAt: athlete.statuses[0].updatedAt.toISOString(),
             }
           : null,
-        glucose: latestGlucose
+        glucose: athlete.glucoseReadings[0]
           ? {
-              ...latestGlucose,
-              recordedAt: latestGlucose.recordedAt.toISOString(),
-              createdAt: latestGlucose.createdAt.toISOString(),
-              updatedAt: latestGlucose.updatedAt.toISOString(),
+              ...athlete.glucoseReadings[0],
+              recordedAt: athlete.glucoseReadings[0].recordedAt.toISOString(),
+              createdAt: athlete.glucoseReadings[0].createdAt.toISOString(),
+              updatedAt: athlete.glucoseReadings[0].updatedAt.toISOString(),
             }
           : null,
-        glucoseHistory: transformedGlucoseHistory,
-        unreadMessagesCount,
+        glucoseHistory: athlete.glucoseReadings.slice(1).map((reading) => ({
+          ...reading,
+          recordedAt: reading.recordedAt.toISOString(),
+          createdAt: reading.createdAt.toISOString(),
+          updatedAt: reading.updatedAt.toISOString(),
+        })),
       };
-    })
-  );
+    }
+  } else if (athletes.length === 1) {
+    // If only one athlete, select it by default
+    const athlete = await db.user.findFirst({
+      where: {
+        id: athletes[0].id,
+        role: "ATHLETE",
+        athleteParents: {
+          some: {
+            parentId: user.id,
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        receivedMessages: {
+          where: {
+            read: false,
+            senderId: user.id,
+          },
+          select: {
+            id: true,
+          },
+        },
+        statuses: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 1,
+          select: {
+            id: true,
+            type: true,
+            acknowledgedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+        glucoseReadings: {
+          orderBy: {
+            recordedAt: "desc",
+          },
+          take: 10,
+          select: {
+            id: true,
+            value: true,
+            unit: true,
+            recordedAt: true,
+            userId: true,
+            recordedById: true,
+            statusId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
 
-  // Check parent-athlete relationships directly
-  const parentAthleteRelationships = await db.parentAthlete.findMany({
-    where: { parentId: user.id },
-    include: { athlete: true },
+    if (athlete) {
+      selectedAthlete = {
+        id: athlete.id,
+        name: athlete.name,
+        unreadMessagesCount: athlete.receivedMessages.length,
+        status: athlete.statuses[0]
+          ? {
+              ...athlete.statuses[0],
+              type: athlete.statuses[0].type as StatusType,
+              acknowledgedAt:
+                athlete.statuses[0].acknowledgedAt?.toISOString() ?? null,
+              createdAt: athlete.statuses[0].createdAt.toISOString(),
+              updatedAt: athlete.statuses[0].updatedAt.toISOString(),
+            }
+          : null,
+        glucose: athlete.glucoseReadings[0]
+          ? {
+              ...athlete.glucoseReadings[0],
+              recordedAt: athlete.glucoseReadings[0].recordedAt.toISOString(),
+              createdAt: athlete.glucoseReadings[0].createdAt.toISOString(),
+              updatedAt: athlete.glucoseReadings[0].updatedAt.toISOString(),
+            }
+          : null,
+        glucoseHistory: athlete.glucoseReadings.slice(1).map((reading) => ({
+          ...reading,
+          recordedAt: reading.recordedAt.toISOString(),
+          createdAt: reading.createdAt.toISOString(),
+          updatedAt: reading.updatedAt.toISOString(),
+        })),
+      };
+    }
+  }
+
+  // Get the user's Dexcom token
+  const dexcomToken = await db.dexcomToken.findUnique({
+    where: {
+      userId: user.id,
+    },
   });
 
-  console.log(
-    "Parent-athlete relationships:",
-    parentAthleteRelationships.length
-  );
-  console.log(
-    "Relationships:",
-    parentAthleteRelationships.map((r) => ({
-      parentId: r.parentId,
-      athleteId: r.athleteId,
-      athleteName: r.athlete.name,
-    }))
-  );
-
-  return data({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-    athletes: athletesWithData,
+  return data<LoaderData>({
+    user,
+    athletes,
+    selectedAthlete,
+    dexcomToken,
   });
 }
 
@@ -234,6 +449,7 @@ export async function action({ request }: Route.ActionArgs) {
         userId: athleteId,
         recordedById: user.id,
         statusId: status.id,
+        source: "manual",
       },
     });
 
@@ -305,70 +521,295 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ success: true, message });
   }
 
+  if (intent === "refresh-dexcom") {
+    console.log("Starting Dexcom refresh...");
+    // Get the user's Dexcom token
+    const dexcomToken = await db.dexcomToken.findUnique({
+      where: {
+        userId: user.id,
+      },
+    });
+
+    if (!dexcomToken) {
+      console.log("No Dexcom token found");
+      return data({ error: "Dexcom token not found" }, { status: 400 });
+    }
+
+    // Check if token is expired
+    if (dexcomToken.expiresAt < new Date()) {
+      console.log("Dexcom token expired");
+      return data({ error: "Dexcom token expired" }, { status: 400 });
+    }
+
+    // Get the athlete
+    const athlete = await db.user.findFirst({
+      where: {
+        role: "ATHLETE",
+        athleteParents: {
+          some: {
+            parentId: user.id,
+          },
+        },
+      },
+      include: {
+        glucoseReadings: {
+          orderBy: {
+            recordedAt: "desc",
+          },
+          take: 1,
+          where: {
+            source: "dexcom",
+          },
+        },
+      },
+    });
+
+    if (!athlete) {
+      console.log("No athlete found");
+      return data({ error: "Athlete not found" }, { status: 404 });
+    }
+
+    try {
+      // Get the latest reading from Dexcom
+      // Calculate time range for the last 24 hours
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+
+      // Format dates for Dexcom API in YYYY-MM-DDThh:mm:ss format
+      const formattedStartDate = startDate
+        .toISOString()
+        .replace(/\.\d{3}Z$/, "");
+      const formattedEndDate = endDate.toISOString().replace(/\.\d{3}Z$/, "");
+
+      console.log("Fetching Dexcom data...");
+      const response = await fetch(
+        `https://sandbox-api.dexcom.com/v3/users/self/egvs?startDate=${formattedStartDate}&endDate=${formattedEndDate}&minCount=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${dexcomToken.accessToken}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Dexcom API error:", errorData);
+        throw new Error(
+          `Failed to get Dexcom readings: ${
+            errorData.error_description || response.statusText
+          }`
+        );
+      }
+
+      const responseData = await response.json();
+      console.log("Dexcom API response:", responseData);
+
+      if (!responseData.records || responseData.records.length === 0) {
+        console.log("No readings found in response");
+        return data({ success: false, message: "No readings found" });
+      }
+
+      // Get the most recent reading
+      const latestReading = responseData.records[0];
+      console.log("Latest reading:", latestReading);
+
+      // Check if we have a previous Dexcom reading
+      if (athlete.glucoseReadings.length > 0) {
+        const lastReading = athlete.glucoseReadings[0];
+        const lastReadingTime = new Date(lastReading.recordedAt);
+        const currentTime = new Date();
+        const timeDiffMinutes =
+          (currentTime.getTime() - lastReadingTime.getTime()) / (1000 * 60);
+
+        // If the value is the same and less than 5 minutes have passed, disregard
+        if (latestReading.value === lastReading.value && timeDiffMinutes < 5) {
+          console.log("Same value within 5 minutes, disregarding");
+          return data({
+            success: false,
+            message: "Dexcom has not provided a new value yet",
+            noNewData: true,
+          });
+        }
+      }
+
+      // Determine the status based on the glucose value
+      const value = latestReading.value;
+      let statusType = StatusType.OK;
+
+      if (value < 70) {
+        statusType = StatusType.LOW;
+      } else if (value > 180) {
+        statusType = StatusType.HIGH;
+      }
+
+      // Create new status
+      const status = await db.status.create({
+        data: {
+          type: statusType,
+          userId: athlete.id,
+        },
+      });
+
+      // Create new glucose reading
+      const glucoseReading = await db.glucoseReading.create({
+        data: {
+          value,
+          unit: latestReading.unit,
+          userId: athlete.id,
+          recordedById: user.id,
+          statusId: status.id,
+          source: "dexcom",
+        },
+      });
+
+      console.log("Successfully created new reading:", glucoseReading);
+      return data({ success: true, status, glucoseReading });
+    } catch (error) {
+      console.error("Error refreshing Dexcom data:", error);
+      return data({ error: "Failed to refresh Dexcom data" }, { status: 500 });
+    }
+  }
+
+  if (intent === "remove-athlete") {
+    const athleteId = formData.get("athleteId");
+
+    if (typeof athleteId !== "string") {
+      return data({ error: "Athlete ID is required" }, { status: 400 });
+    }
+
+    // Verify the athlete belongs to this parent
+    const athlete = await db.user.findFirst({
+      where: {
+        id: athleteId,
+        athleteParents: {
+          some: {
+            parentId: user.id,
+          },
+        },
+      },
+    });
+
+    if (!athlete) {
+      return data({ error: "Athlete not found" }, { status: 404 });
+    }
+
+    // Delete the parent-athlete relationship
+    await db.parentAthlete.deleteMany({
+      where: {
+        parentId: user.id,
+        athleteId: athleteId,
+      },
+    });
+
+    // Delete the athlete's data
+    await db.user.delete({
+      where: {
+        id: athleteId,
+      },
+    });
+
+    return data({ success: true });
+  }
+
   return data({ error: "Invalid intent" }, { status: 400 });
 }
 
 export default function ParentDashboard() {
-  const { user, athletes } = useLoaderData<typeof loader>();
+  const { user, athletes, selectedAthlete, dexcomToken } =
+    useLoaderData<typeof loader>();
   const context = useOutletContext<{
     selectedAthleteId: string | null;
   }>();
-  const selectedAthleteId =
-    typeof context.selectedAthleteId === "string"
-      ? context.selectedAthleteId
-      : null;
-  const fetcher = useFetcher<{ success?: boolean }>();
+  const selectedAthleteId = context.selectedAthleteId ?? null;
+  const fetcher = useFetcher<{
+    success?: boolean;
+    error?: string;
+    noNewData?: boolean;
+  }>();
   const [isStrobeDialogOpen, setIsStrobeDialogOpen] = useState(false);
+  const [isDexcomDialogOpen, setIsDexcomDialogOpen] = useState(false);
+  const [isDexcomConnected, setIsDexcomConnected] = useState(!!dexcomToken);
+  const [dexcomError, setDexcomError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRemoveAthleteDialogOpen, setIsRemoveAthleteDialogOpen] =
+    useState(false);
+  const [athleteToRemove, setAthleteToRemove] = useState<string | null>(null);
+  const [isRemovingAthlete, setIsRemovingAthlete] = useState(false);
   const navigate = useNavigate();
 
-  // Define the athlete type to fix TypeScript errors
-  type Athlete = {
-    id: string;
-    name: string;
-    status?: {
-      id: string;
-      type: PrismaStatusType;
-      acknowledgedAt: string | null;
-      userId: string;
-      createdAt: string;
-      updatedAt: string;
-    } | null;
-    glucose?: {
-      id: string;
-      value: number;
-      unit: string;
-      recordedAt: string;
-      userId: string;
-      recordedById: string;
-      statusId: string | null;
-      createdAt: string;
-      updatedAt: string;
-    } | null;
-    glucoseHistory: Array<{
-      id: string;
-      value: number;
-      unit: string;
-      recordedAt: string;
-      status: {
-        type: StatusType;
-        acknowledgedAt: string | null;
-      } | null;
-    }>;
-    unreadMessagesCount: number;
+  // Show the remove athlete dialog if there are multiple athletes
+  useEffect(() => {
+    if (athletes.length > 1) {
+      setIsRemoveAthleteDialogOpen(true);
+    }
+  }, [athletes.length]);
+
+  // Check URL parameters for Dexcom callback results
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      const success = url.searchParams.get("success");
+      const error = url.searchParams.get("error");
+
+      if (success === "true") {
+        setIsDexcomConnected(true);
+        // Clean up URL
+        window.history.replaceState({}, "", "/parent");
+      } else if (error) {
+        setDexcomError(error);
+        // Clean up URL
+        window.history.replaceState({}, "", "/parent");
+      }
+    }
+  }, []);
+
+  // Function to handle Dexcom authentication success
+  const handleDexcomAuthSuccess = (data: {
+    accessToken: string;
+    refreshToken: string;
+  }) => {
+    setIsDexcomConnected(true);
+    setDexcomError(null);
   };
 
-  const selectedAthlete = athletes.find(
-    (a: Athlete) => a.id === selectedAthleteId
-  ) as Athlete | undefined;
+  // Function to refresh Dexcom data
+  const refreshDexcomData = async () => {
+    if (!dexcomToken) return;
+
+    setIsRefreshing(true);
+    setDexcomError(null);
+
+    try {
+      // Submit the form to update the glucose reading
+      const formData = new FormData();
+      formData.append("intent", "refresh-dexcom");
+
+      fetcher.submit(formData, { method: "post" });
+    } catch (error) {
+      console.error("Error refreshing Dexcom data:", error);
+      setDexcomError("Failed to refresh Dexcom data");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Reset form after successful submission
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.success) {
-      const form = document.querySelector(
-        'form[method="post"]'
-      ) as HTMLFormElement;
-      if (form) {
-        form.reset();
+    if (fetcher.state === "idle") {
+      if (fetcher.data?.success) {
+        const form = document.querySelector(
+          'form[method="post"]'
+        ) as HTMLFormElement;
+        if (form) {
+          form.reset();
+        }
+        // Refresh the page to show updated data
+        window.location.reload();
+      } else if (fetcher.data?.noNewData) {
+        // Show alert for no new data
+        alert("Dexcom has not provided a new value yet");
+      } else if (fetcher.data && !fetcher.data.success) {
+        setDexcomError("Failed to refresh Dexcom data");
       }
     }
   }, [fetcher.state, fetcher.data]);
@@ -400,299 +841,145 @@ export default function ParentDashboard() {
     setIsStrobeDialogOpen(false);
   };
 
+  const handleRemoveAthlete = () => {
+    if (!athleteToRemove) return;
+
+    setIsRemovingAthlete(true);
+
+    const formData = new FormData();
+    formData.append("intent", "remove-athlete");
+    formData.append("athleteId", athleteToRemove);
+
+    fetcher.submit(formData, { method: "post" });
+
+    // Redirect to the parent page with the athleteRemoved parameter
+    navigate("/parent?athleteRemoved=true");
+  };
+
   const isSubmitting = fetcher.state !== "idle";
 
   return (
-    <div className="space-y-6">
-      {/* Page header with prominent athlete display */}
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {selectedAthlete ? selectedAthlete.name : "Dashboard"}
-            </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {selectedAthlete
-                ? `${
-                    selectedAthlete.status?.type || "No Status"
-                  } • Last Reading: ${
-                    selectedAthlete.glucose
-                      ? `${selectedAthlete.glucose.value} ${selectedAthlete.glucose.unit}`
-                      : "No readings"
-                  }`
-                : "Monitor and manage athlete health data"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Rest of the dashboard content */}
-      {selectedAthlete ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Add Glucose Reading - Moved to top and made more prominent */}
-          <div className="bg-white rounded-lg shadow p-6 lg:col-span-3 border-2 border-blue-100">
-            <h2 className="text-xl font-medium text-gray-900 mb-4 flex items-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 mr-2 text-blue-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+    <div className="p-4 md:p-6 space-y-6">
+      {/* Remove Athlete Dialog */}
+      <Dialog
+        open={isRemoveAthleteDialogOpen}
+        onOpenChange={setIsRemoveAthleteDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Multiple Athletes Detected</DialogTitle>
+            <DialogDescription>
+              You currently have multiple athletes in your account. Please
+              select one to remove.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-4">
+              <Label htmlFor="athlete-select">Select Athlete to Remove</Label>
+              <Select
+                value={athleteToRemove || ""}
+                onValueChange={setAthleteToRemove}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-              Add Glucose Reading for {selectedAthlete.name}
-            </h2>
-            <fetcher.Form
-              method="post"
-              onSubmit={handleGlucoseSubmit}
-              className="space-y-4"
+                <SelectTrigger id="athlete-select">
+                  <SelectValue placeholder="Select an athlete" />
+                </SelectTrigger>
+                <SelectContent>
+                  {athletes.map((athlete) => (
+                    <SelectItem key={athlete.id} value={athlete.id}>
+                      {athlete.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsRemoveAthleteDialogOpen(false)}
+              disabled={isRemovingAthlete}
             >
-              <input type="hidden" name="intent" value="update-glucose" />
-              <input
-                type="hidden"
-                name="athleteId"
-                value={selectedAthleteId || ""}
-              />
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRemoveAthlete}
+              disabled={!athleteToRemove || isRemovingAthlete}
+            >
+              {isRemovingAthlete ? "Removing..." : "Remove Athlete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="glucose-value">Glucose Value</Label>
-                  <Input
-                    id="glucose-value"
-                    name="value"
-                    type="number"
-                    required
-                    className="mt-1"
-                    placeholder="Enter glucose value"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="glucose-unit">Unit</Label>
-                  <Select name="unit" defaultValue="mg/dL">
-                    <SelectTrigger id="glucose-unit" className="mt-1">
-                      <SelectValue placeholder="Select unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mg/dL">mg/dL</SelectItem>
-                      <SelectItem value="mmol/L">mmol/L</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-end">
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? "Adding..." : "Add Reading"}
-                  </Button>
-                </div>
-              </div>
-            </fetcher.Form>
-          </div>
-
-          {/* Status Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">
-              Current Status
-            </h2>
-            <div className="flex flex-col items-center justify-center p-4 rounded-lg bg-gray-50">
-              <div
-                className={`text-4xl font-bold mb-2 ${
-                  selectedAthlete.status?.type === StatusType.HIGH
-                    ? "text-black"
-                    : selectedAthlete.status?.type === StatusType.LOW
-                    ? "text-red-600"
-                    : "text-green-600"
-                }`}
-              >
-                {selectedAthlete.status?.type || "OK"}
-              </div>
-              {selectedAthlete.glucose && (
-                <div className="text-2xl text-gray-700">
-                  {selectedAthlete.glucose.value} {selectedAthlete.glucose.unit}
-                </div>
-              )}
-              <div className="text-sm text-gray-500 mt-2">
-                {selectedAthlete.glucose
-                  ? `Last updated: ${new Date(
-                      selectedAthlete.glucose.recordedAt
-                    ).toLocaleString()}`
-                  : "No recent readings"}
-              </div>
-              {selectedAthlete.status?.type === StatusType.LOW && (
-                <div
-                  className={`mt-2 text-sm ${
-                    selectedAthlete.status.acknowledgedAt
-                      ? "text-green-600"
-                      : "text-red-600 font-medium"
-                  }`}
-                >
-                  {selectedAthlete.status.acknowledgedAt
-                    ? `Acknowledged at ${new Date(
-                        selectedAthlete.status.acknowledgedAt
-                      ).toLocaleTimeString()}`
-                    : "⚠️ Not acknowledged yet - Follow up immediately!"}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Glucose Chart */}
-          <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
-            <div className="flex items-center justify-between mb-6">
+      {selectedAthlete ? (
+        <div className="space-y-6">
+          {/* Current Status Card */}
+          <Card className="border-l-4 border-blue-500">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-medium text-gray-900">
-                  Glucose History
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Last 10 glucose readings over time
-                </p>
+                <CardTitle className="text-xl">
+                  {selectedAthlete.name}
+                </CardTitle>
+                <CardDescription>
+                  Current Status and Latest Reading
+                </CardDescription>
               </div>
-              <Link to={`/parent/history/${selectedAthleteId}`}>
-                <Button variant="outline" size="sm">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 mr-1.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
+              <div className="mt-4 sm:mt-0 flex flex-row items-center gap-2 w-full">
+                {isDexcomConnected ? (
+                  <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm w-1/3 justify-center">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span>Connected to Dexcom</span>
+                  </div>
+                ) : (
+                  <Dialog
+                    open={isDexcomDialogOpen}
+                    onOpenChange={setIsDexcomDialogOpen}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  View Full History
-                </Button>
-              </Link>
-            </div>
-            <div className="h-[300px] bg-gray-50 rounded-lg p-4">
-              {selectedAthlete.glucoseHistory.length > 0 ? (
-                <GlucoseChart readings={selectedAthlete.glucoseHistory} />
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-gray-500">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-12 w-12 mb-2 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                    />
-                  </svg>
-                  <p className="text-sm">No glucose history available</p>
-                  <p className="text-xs mt-1">Add a reading to see the chart</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Communication and Emergency Options - Side by side on desktop */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:col-span-3">
-            {/* Send Message */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">
-                Send Message
-              </h2>
-              <fetcher.Form
-                method="post"
-                onSubmit={handleMessageSubmit}
-                className="space-y-4"
-              >
-                <input type="hidden" name="intent" value="send-message" />
-                <input
-                  type="hidden"
-                  name="athleteId"
-                  value={selectedAthleteId || ""}
-                />
-
-                <div>
-                  <Label htmlFor="message-content">Message</Label>
-                  <Textarea
-                    id="message-content"
-                    name="content"
-                    required
-                    className="mt-1"
-                    placeholder="Type your message here..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="flex items-center">
-                  <input
-                    id="message-urgent"
-                    name="isUrgent"
-                    type="checkbox"
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <Label
-                    htmlFor="message-urgent"
-                    className="ml-2 block text-sm text-gray-700"
-                  >
-                    Mark as urgent
-                  </Label>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Sending..." : "Send Message"}
-                </Button>
-              </fetcher.Form>
-            </div>
-
-            {/* Emergency Options */}
-            <div className="bg-white rounded-lg shadow p-6 border border-red-100">
-              <h2 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5 mr-2 text-red-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                Emergency Options
-              </h2>
-              <p className="text-sm text-gray-700 mb-4">
-                Use the strobe alert only in emergency situations when immediate
-                attention is required. This will cause {selectedAthlete.name}'s
-                phone to flash between white and red to get their attention.
-              </p>
-
-              <Dialog
-                open={isStrobeDialogOpen}
-                onOpenChange={setIsStrobeDialogOpen}
-              >
-                <DialogTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsDexcomDialogOpen(true)}
+                        className="w-1/2"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4 mr-1.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                          />
+                        </svg>
+                        Connect Dexcom
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Connect to Dexcom</DialogTitle>
+                        <DialogDescription>
+                          Connect to Dexcom for automatic glucose readings
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <DexcomAuth onAuthSuccess={handleDexcomAuthSuccess} />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
+                {isDexcomConnected && (
                   <Button
-                    variant="destructive"
-                    disabled={!selectedAthleteId || isSubmitting}
-                    className="w-full"
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshDexcomData}
+                    disabled={isRefreshing}
+                    className="w-1/3"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -705,82 +992,389 @@ export default function ParentDashboard() {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                       />
                     </svg>
-                    Send STROBE Alert
+                    {isRefreshing ? "Refreshing..." : "Refresh"}
                   </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Confirm STROBE Alert</DialogTitle>
-                    <DialogDescription>
-                      Are you sure you want to send a STROBE alert to{" "}
-                      {selectedAthlete?.name}? This should only be used in
-                      urgent situations and will cause their phone to flash.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
+                )}
+                <Dialog
+                  open={isStrobeDialogOpen}
+                  onOpenChange={setIsStrobeDialogOpen}
+                >
+                  <DialogTrigger asChild>
                     <Button
-                      variant="outline"
-                      onClick={() => setIsStrobeDialogOpen(false)}
+                      variant="destructive"
+                      size="sm"
+                      disabled={!selectedAthleteId || isSubmitting}
+                      className="w-1/3"
                     >
-                      Cancel
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 mr-1.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
+                      </svg>
+                      Send SOS
                     </Button>
-                    <Button variant="destructive" onClick={handleSendStrobe}>
-                      Send Alert
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Confirm STROBE Alert</DialogTitle>
+                      <DialogDescription>
+                        Are you sure you want to send a STROBE alert to{" "}
+                        {selectedAthlete?.name}? This should only be used in
+                        urgent situations and will cause their phone to flash.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsStrobeDialogOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button variant="destructive" onClick={handleSendStrobe}>
+                        Send Alert
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-col items-center justify-center p-6 rounded-lg bg-gray-50">
+                  <div className="text-4xl font-bold mb-2">
+                    {selectedAthlete.glucose ? (
+                      <>
+                        <span className="text-5xl">
+                          {selectedAthlete.glucose.value}
+                        </span>
+                        <span className="text-2xl ml-1">
+                          {selectedAthlete.glucose.unit}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-gray-400">No Reading</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {selectedAthlete.glucose
+                      ? `Last updated: ${new Date(
+                          selectedAthlete.glucose.recordedAt
+                        ).toLocaleTimeString()}`
+                      : "No recent readings"}
+                  </div>
+                  {selectedAthlete.glucose &&
+                    selectedAthlete.glucoseHistory.length > 0 && (
+                      <div className="mt-2 text-xs text-gray-500 flex items-center">
+                        <span className="mr-1">
+                          Previous: {selectedAthlete.glucoseHistory[0].value}
+                        </span>
+                        <span
+                          className={`ml-1 ${
+                            selectedAthlete.glucose.value >
+                            selectedAthlete.glucoseHistory[0].value
+                              ? "text-green-500"
+                              : "text-red-500"
+                          }`}
+                        >
+                          (
+                          {selectedAthlete.glucose.value >
+                          selectedAthlete.glucoseHistory[0].value
+                            ? "+"
+                            : ""}
+                          {selectedAthlete.glucose.value -
+                            selectedAthlete.glucoseHistory[0].value}
+                          )
+                        </span>
+                      </div>
+                    )}
+                </div>
+                <div className="flex flex-col items-center justify-center p-6 rounded-lg bg-gray-50">
+                  <div
+                    className={`text-4xl font-bold mb-2 ${
+                      selectedAthlete.status?.type === PrismaStatusType.HIGH
+                        ? "text-black"
+                        : selectedAthlete.status?.type === PrismaStatusType.LOW
+                        ? "text-red-600"
+                        : "text-green-600"
+                    }`}
+                  >
+                    {selectedAthlete.status?.type || "OK"}
+                  </div>
+                  {selectedAthlete.status?.type === PrismaStatusType.LOW && (
+                    <div
+                      className={`text-sm ${
+                        selectedAthlete.status.acknowledgedAt
+                          ? "text-green-600"
+                          : "text-red-600 font-medium"
+                      }`}
+                    >
+                      {selectedAthlete.status.acknowledgedAt
+                        ? `Acknowledged at ${new Date(
+                            selectedAthlete.status.acknowledgedAt
+                          ).toLocaleTimeString()}`
+                        : "⚠️ Not acknowledged yet"}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-600"></div>
+                  <span>Low: &lt;100</span>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-600"></div>
+                  <span>OK: 100-249</span>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-black"></div>
+                  <span>High: 250+</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Manual Glucose Entry - Full Width */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Manual Glucose Entry</CardTitle>
+              <CardDescription>
+                Enter a new glucose reading for {selectedAthlete.name}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                method="post"
+                onSubmit={handleGlucoseSubmit}
+                className="space-y-4"
+              >
+                <input type="hidden" name="intent" value="update-glucose" />
+                <input
+                  type="hidden"
+                  name="athleteId"
+                  value={selectedAthleteId ?? ""}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="value"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Glucose Value
+                    </label>
+                    <Input
+                      type="number"
+                      name="value"
+                      id="value"
+                      required
+                      placeholder="Enter value"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="unit"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Unit
+                    </label>
+                    <Select name="unit" defaultValue="mg/dL">
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mg/dL">mg/dL</SelectItem>
+                        <SelectItem value="mmol/L">mmol/L</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full"
+                >
+                  {isSubmitting ? "Submitting..." : "Submit Reading"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Glucose Chart and Readings Table - Side by Side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Glucose Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Glucose History</CardTitle>
+                <CardDescription>
+                  Recent glucose readings for {selectedAthlete.name}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <GlucoseChart
+                    readings={[
+                      ...(selectedAthlete.glucoseHistory || []),
+                      ...(selectedAthlete.glucose
+                        ? [selectedAthlete.glucose]
+                        : []),
+                    ]
+                      .sort(
+                        (a, b) =>
+                          new Date(a.recordedAt).getTime() -
+                          new Date(b.recordedAt).getTime()
+                      )
+                      .map((reading) => ({
+                        ...reading,
+                        recordedAt: reading.recordedAt,
+                        status: reading.status
+                          ? {
+                              type: reading.status.type as StatusType,
+                              acknowledgedAt:
+                                reading.status.acknowledgedAt || null,
+                            }
+                          : null,
+                      }))}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Glucose Readings Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Glucose Readings</CardTitle>
+                <CardDescription>
+                  Detailed list of recent glucose readings for{" "}
+                  {selectedAthlete.name}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="py-2 text-left">Time</th>
+                        <th className="py-2 text-left">Value</th>
+                        <th className="py-2 text-left">Status</th>
+                        <th className="py-2 text-left">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ...(selectedAthlete.glucoseHistory || []),
+                        ...(selectedAthlete.glucose
+                          ? [selectedAthlete.glucose]
+                          : []),
+                      ]
+                        .sort(
+                          (a, b) =>
+                            new Date(b.recordedAt).getTime() -
+                            new Date(a.recordedAt).getTime()
+                        )
+                        .slice(0, 10)
+                        .map((reading) => (
+                          <tr key={reading.id} className="border-b">
+                            <td className="py-2">
+                              {new Date(reading.recordedAt).toLocaleString()}
+                            </td>
+                            <td className="py-2">
+                              {reading.value} {reading.unit}
+                            </td>
+                            <td className="py-2">
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs ${
+                                  reading.status?.type === PrismaStatusType.HIGH
+                                    ? "bg-black text-white"
+                                    : reading.status?.type ===
+                                      PrismaStatusType.LOW
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-green-100 text-green-800"
+                                }`}
+                              >
+                                {reading.status?.type || "OK"}
+                              </span>
+                            </td>
+                            <td className="py-2">
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs ${
+                                  reading.source === "dexcom"
+                                    ? "bg-blue-100 text-blue-800"
+                                    : "bg-gray-100 text-gray-800"
+                                }`}
+                              >
+                                {reading.source === "dexcom"
+                                  ? "From Dexcom"
+                                  : "Manual Entry"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow p-6 text-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-12 w-12 mx-auto text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-            />
-          </svg>
-          <h3 className="mt-2 text-lg font-medium text-gray-900">
-            No Athletes Added
-          </h3>
-          <p className="mt-1 text-sm text-gray-500">
-            You haven't added any athletes yet. Add an athlete to start
-            monitoring their health.
-          </p>
-          <div className="mt-6">
-            <Link to="/parent/add-child">
-              <Button>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 mr-1.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-                  />
-                </svg>
-                Add Athlete
-              </Button>
-            </Link>
-          </div>
-        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-12 w-12 mx-auto text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+              />
+            </svg>
+            <h3 className="mt-2 text-lg font-medium text-gray-900">
+              No Athletes Added
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              You haven't added any athletes yet. Add an athlete to start
+              monitoring their health.
+            </p>
+            <div className="mt-6">
+              <Link to="/parent/add-child">
+                <Button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 mr-1.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+                    />
+                  </svg>
+                  Add Athlete
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -1,29 +1,51 @@
-# fly.toml app configuration file generated for hockey-sugar on 2025-04-03T16:36:51-05:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
 app = 'hockey-sugar'
 primary_region = 'ord'
+kill_signal = 'SIGINT'
+kill_timeout = '5s'
 
 [build]
 
 [[mounts]]
-  source = 'data'
-  destination = '/data'
-  auto_extend_size_threshold = 80
-  auto_extend_size_increment = '1GB'
-  auto_extend_size_limit = '10GB'
+source = 'data'
+destination = '/data'
+auto_extend_size_threshold = 80
+auto_extend_size_increment = '1GB'
+auto_extend_size_limit = '10GB'
 
-[http_service]
-  internal_port = 3000
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+[[services]]
+protocol = 'tcp'
+internal_port = 3000
+processes = ['app']
+
+[[services.ports]]
+port = 80
+handlers = ['http']
+force_https = true
+
+[[services.ports]]
+port = 443
+handlers = ['tls', 'http']
+
+[services.concurrency]
+type = 'connections'
+hard_limit = 25
+soft_limit = 20
+
+[[services.tcp_checks]]
+interval = '15s'
+timeout = '2s'
+grace_period = '1s'
+
+[[services.http_checks]]
+interval = '10s'
+timeout = '500ms'
+grace_period = '1s'
+method = 'get'
+path = '/'
+protocol = 'http'
+tls_skip_verify = false
 
 [[vm]]
-  memory = '512mb'
-  cpu_kind = 'shared'
-  cpus = 1
+memory = '512mb'
+cpu_kind = 'shared'
+cpus = 1

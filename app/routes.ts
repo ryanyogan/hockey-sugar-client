@@ -42,4 +42,6 @@ export default [
   route("api/messages", "./routes/api/messages.ts"),
   route("api/messages/:messageId/read", "./routes/api/messages/read.ts"),
   route("api/glucose/history", "./routes/api/glucose/history.ts"),
+  route("api/dexcom/token", "./routes/api/dexcom/token.ts"),
+  route("api/dexcom/callback", "./routes/api/dexcom/callback.ts"),
 ] satisfies RouteConfig;
