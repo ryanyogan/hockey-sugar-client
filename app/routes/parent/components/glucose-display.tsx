@@ -111,9 +111,10 @@ export function GlucoseDataDisplay({ athlete }: GlucoseDataDisplayProps) {
                               : "bg-gray-100 text-gray-800"
                           }`}
                         >
-                          {reading.source === "dexcom"
+                          {reading.source?.toString() ?? "Manual Entry"}
+                          {/* {reading.source === "dexcom"
                             ? "From Dexcom"
-                            : "Manual Entry"}
+                            : "Manual Entry"} */}
                         </span>
                       </td>
                     </tr>

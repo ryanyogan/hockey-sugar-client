@@ -29,6 +29,7 @@ import {
 import { GlucoseDataDisplay } from "./components/glucose-display";
 import { ManualGlucoseEntryForm } from "./components/manual-glucose-entry-form";
 import { NoAthletesDisplay } from "./components/no-athletes-display";
+import { updateGlucose } from "./queries/update-glucose";
 import type { LoaderData } from "./types";
 
 /**
@@ -131,9 +132,6 @@ async function getUserPreferences(userId: string) {
   return preferences;
 }
 
-/**
- * Handle form submissions and data mutations
- */
 export async function action({ request }: Route.ActionArgs) {
   const user = await requireParentUser(request);
   const formData = await request.formData();
@@ -141,21 +139,29 @@ export async function action({ request }: Route.ActionArgs) {
 
   // Use a switch statement to handle different actions based on intent
   switch (intent) {
-    case "update-glucose":
-    case "send-message":
+    case "update-glucose": {
+      return updateGlucose({ user, formData });
+    }
+
+    case "send-message": {
       return sendMessage({ user, formData });
+    }
 
-    case "send-strobe":
+    case "send-strobe": {
       return sendStrobe({ user, formData });
+    }
 
-    case "refresh-dexcom":
+    case "refresh-dexcom": {
       return refreshDexcom({ user });
+    }
 
-    case "update-preferences":
+    case "update-preferences": {
       return updatePreferences({ user, formData });
+    }
 
-    default:
+    default: {
       return data({ error: "Invalid intent" }, { status: 400 });
+    }
   }
 }
 

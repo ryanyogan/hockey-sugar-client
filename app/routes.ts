@@ -16,8 +16,8 @@ export default [
   route("dashboard", "./routes/dashboard.tsx"),
 
   // Parent routes
-  layout("./routes/parent/layout.tsx", [
-    ...prefix("/parent", [
+  ...prefix("/parent", [
+    layout("./routes/parent/layout.tsx", [
       index("./routes/parent/index.tsx"),
       route("manage-parents", "./routes/parent/manage-parents.tsx"),
       route("add-child", "./routes/parent/add-child.tsx"),
@@ -27,13 +27,6 @@ export default [
     ]),
   ]),
 
-  // // Athlete routes
-  layout("./routes/athlete/layout.tsx", [
-    ...prefix("/athlete", [
-      index("./routes/athlete/status.tsx"),
-      route("messages", "./routes/athlete/messages.tsx"),
-    ]),
-  ]),
   route("api/auth/login", "./routes/api/auth/login.ts"),
   route("api/auth/register", "./routes/api/auth/register.ts"),
   route("api/auth/verify", "./routes/api/auth/verify.ts"),
