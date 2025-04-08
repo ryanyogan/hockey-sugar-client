@@ -15,10 +15,8 @@ interface GlucoseReading {
   value: number;
   unit: string;
   recordedAt: string;
-  status?: {
-    type: PrismaStatusType;
-    acknowledgedAt: string | null;
-  } | null;
+  statusType: PrismaStatusType;
+  acknowledgedAt: string | null;
 }
 
 interface GlucoseChartProps {
@@ -47,8 +45,8 @@ export function GlucoseChart({
       time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       fullTime: date.toLocaleString(),
       value: reading.value,
-      status: reading.status?.type || "OK",
-      acknowledged: reading.status?.acknowledgedAt !== null,
+      status: reading.statusType,
+      acknowledged: reading.acknowledgedAt !== null,
     };
   });
 
@@ -108,19 +106,17 @@ export function GlucoseChart({
                         <span className="font-medium text-gray-900">
                           {data.value} {data.unit}
                         </span>
-                        {data.status && (
-                          <span
-                            className={`text-xs px-1.5 py-0.5 rounded ${
-                              data.status.type === "HIGH"
-                                ? "bg-orange-100 text-orange-700"
-                                : data.status.type === "LOW"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {data.status.type}
-                          </span>
-                        )}
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded ${
+                            data.statusType === "HIGH"
+                              ? "bg-orange-100 text-orange-700"
+                              : data.statusType === "LOW"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          {data.statusType}
+                        </span>
                       </div>
                     </div>
                   );

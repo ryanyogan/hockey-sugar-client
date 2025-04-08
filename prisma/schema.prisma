@@ -25,7 +25,6 @@ model User {
   receivedMessages Message[]        @relation("ReceivedMessages")
   glucoseReadings  GlucoseReading[]
   recordedReadings GlucoseReading[] @relation("RecordedReadings")
-  statuses         Status[]
   dexcomToken      DexcomToken?
   preferences      UserPreferences?
 
@@ -40,35 +39,22 @@ enum Role {
 }
 
 model GlucoseReading {
-  id           String   @id @default(cuid())
-  value        Float
-  unit         String   @default("mg/dL")
-  recordedAt   DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  recordedById String
-  recordedBy   User     @relation("RecordedReadings", fields: [recordedById], references: [id], onDelete: Cascade)
-  status       Status?  @relation(fields: [statusId], references: [id])
-  statusId     String?
-  source       String?  @default("manual")
+  id             String     @id @default(cuid())
+  value          Float
+  unit           String     @default("mg/dL")
+  recordedAt     DateTime   @default(now())
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordedById   String
+  recordedBy     User       @relation("RecordedReadings", fields: [recordedById], references: [id], onDelete: Cascade)
+  statusType     StatusType @default(OK)
+  acknowledgedAt DateTime?
+  source         String?    @default("manual")
 
   @@index([userId])
   @@index([recordedById])
-}
-
-model Status {
-  id              String           @id @default(cuid())
-  type            StatusType
-  acknowledgedAt  DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  glucoseReadings GlucoseReading[]
-
-  @@index([userId])
 }
 
 enum StatusType {

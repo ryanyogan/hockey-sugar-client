@@ -6,7 +6,6 @@ import {
   useNavigate,
   useOutletContext,
 } from "react-router";
-import { StatusType } from "~/components/status/status-display";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
 import type { Route } from "./+types";
@@ -18,7 +17,7 @@ import { sendStrobe } from "./queries/send-strobe";
 import { updatePreferences } from "./queries/update-preferences";
 
 // Move types to a separate file to keep the route module clean
-import type { GlucoseReading } from "@prisma/client";
+import type { GlucoseReading, StatusType } from "@prisma/client";
 import { AthleteStatusCard } from "./components/athlete-status-card";
 import {
   DexcomDialog,
@@ -72,36 +71,45 @@ export async function loader({ request }: Route.LoaderArgs) {
  * Format athlete data for the UI, converting date objects to ISO strings
  */
 function formatAthleteData(athlete: any) {
+  // Sort glucose readings by recordedAt in descending order
+  const sortedReadings = [...athlete.glucoseReadings].sort(
+    (a: any, b: any) =>
+      new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+  );
+
+  // Get the latest reading
+  const latestReading = sortedReadings[0];
+
   return {
     id: athlete.id,
     name: athlete.name,
     unreadMessagesCount: athlete.receivedMessages.length,
-    status: athlete.statuses[0]
+    status: latestReading
       ? {
-          ...athlete.statuses[0],
-          type: athlete.statuses[0].type as StatusType,
-          acknowledgedAt:
-            athlete.statuses[0].acknowledgedAt?.toISOString() ?? null,
-          createdAt: athlete.statuses[0].createdAt.toISOString(),
-          updatedAt: athlete.statuses[0].updatedAt.toISOString(),
+          type: latestReading.statusType as StatusType,
+          acknowledgedAt: latestReading.acknowledgedAt?.toISOString() ?? null,
+          createdAt: latestReading.createdAt.toISOString(),
+          updatedAt: latestReading.updatedAt.toISOString(),
         }
       : null,
-    glucose: athlete.glucoseReadings[0]
+    glucose: latestReading
       ? {
-          ...athlete.glucoseReadings[0],
-          recordedAt: athlete.glucoseReadings[0].recordedAt.toISOString(),
-          createdAt: athlete.glucoseReadings[0].createdAt.toISOString(),
-          updatedAt: athlete.glucoseReadings[0].updatedAt.toISOString(),
+          ...latestReading,
+          recordedAt: latestReading.recordedAt.toISOString(),
+          createdAt: latestReading.createdAt.toISOString(),
+          updatedAt: latestReading.updatedAt.toISOString(),
+          acknowledgedAt: latestReading.acknowledgedAt?.toISOString() ?? null,
+          source: latestReading.source as "manual" | "dexcom" | undefined,
         }
       : null,
-    glucoseHistory: athlete.glucoseReadings
-      .slice(1)
-      .map((reading: GlucoseReading) => ({
-        ...reading,
-        recordedAt: reading.recordedAt.toISOString(),
-        createdAt: reading.createdAt.toISOString(),
-        updatedAt: reading.updatedAt.toISOString(),
-      })),
+    glucoseHistory: sortedReadings.slice(1).map((reading: GlucoseReading) => ({
+      ...reading,
+      recordedAt: reading.recordedAt.toISOString(),
+      createdAt: reading.createdAt.toISOString(),
+      updatedAt: reading.updatedAt.toISOString(),
+      acknowledgedAt: reading.acknowledgedAt?.toISOString() ?? null,
+      source: reading.source as "manual" | "dexcom" | undefined,
+    })),
   };
 }
 
@@ -197,6 +205,7 @@ export default function ParentDashboard() {
     preferences?.highThreshold || 180
   );
   const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
+  const [noNewDataMessage, setNoNewDataMessage] = useState<string | null>(null);
 
   // Show the remove athlete dialog if there are multiple athletes
   useEffect(() => {
@@ -238,7 +247,13 @@ export default function ParentDashboard() {
       // Refresh the page to show updated data
       window.location.reload();
     } else if (response.noNewData) {
-      alert("Dexcom has not provided a new value yet");
+      setNoNewDataMessage(
+        "Dexcom data has not updated, please try again in a few minutes."
+      );
+      // Clear the message after 5 seconds
+      setTimeout(() => {
+        setNoNewDataMessage(null);
+      }, 5000);
     } else if (response.needsReauth) {
       setDexcomError("Dexcom connection expired. Please reconnect.");
       setIsDexcomConnected(false);
@@ -385,6 +400,12 @@ export default function ParentDashboard() {
         setIsOpen={setIsDexcomDialogOpen}
         onAuthSuccess={handleDexcomAuthSuccess}
       />
+
+      {noNewDataMessage && (
+        <div className="bg-orange-500 text-white p-3 rounded-md mb-4">
+          {noNewDataMessage}
+        </div>
+      )}
 
       {selectedAthlete ? (
         <div className="space-y-6">

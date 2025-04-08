@@ -1,5 +1,5 @@
+import type { StatusType } from "@prisma/client";
 import { GlucoseChart } from "~/components/glucose/glucose-chart";
-import { StatusType } from "~/components/status/status-display";
 import {
   Card,
   CardContent,
@@ -40,12 +40,10 @@ export function GlucoseDataDisplay({ athlete }: GlucoseDataDisplayProps) {
               readings={sortedReadings.map((reading) => ({
                 ...reading,
                 recordedAt: reading.recordedAt,
-                status: reading.status
-                  ? {
-                      type: reading.status.type as StatusType,
-                      acknowledgedAt: reading.status.acknowledgedAt || null,
-                    }
-                  : null,
+                status: {
+                  type: reading.statusType as StatusType,
+                  acknowledgedAt: reading.acknowledgedAt || null,
+                },
               }))}
             />
           </div>
@@ -93,29 +91,18 @@ export function GlucoseDataDisplay({ athlete }: GlucoseDataDisplayProps) {
                       <td className="py-2">
                         <span
                           className={`px-2 py-1 rounded-full text-xs ${
-                            reading.status?.type === PrismaStatusType.HIGH
+                            reading.statusType === PrismaStatusType.HIGH
                               ? "bg-black text-white"
-                              : reading.status?.type === PrismaStatusType.LOW
+                              : reading.statusType === PrismaStatusType.LOW
                               ? "bg-red-100 text-red-800"
                               : "bg-green-100 text-green-800"
                           }`}
                         >
-                          {reading.status?.type || "OK"}
+                          {reading.statusType || "OK"}
                         </span>
                       </td>
                       <td className="py-2">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs ${
-                            reading.source === "dexcom"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {reading.source?.toString() ?? "Manual Entry"}
-                          {/* {reading.source === "dexcom"
-                            ? "From Dexcom"
-                            : "Manual Entry"} */}
-                        </span>
+                        {reading.source === "dexcom" ? "Dexcom" : "Manual"}
                       </td>
                     </tr>
                   ))}

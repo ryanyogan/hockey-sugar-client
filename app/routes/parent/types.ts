@@ -7,14 +7,11 @@ export type GlucoseReading = {
   recordedAt: string;
   userId: string;
   recordedById: string;
-  statusId: string | null;
+  statusType: StatusType;
+  acknowledgedAt: string | null;
   createdAt: string;
   updatedAt: string;
   source?: "manual" | "dexcom";
-  status?: {
-    type: StatusType;
-    acknowledgedAt: string | null;
-  } | null;
 };
 
 export type Status = {
@@ -29,7 +26,10 @@ export type Athlete = {
   id: string;
   name: string;
   unreadMessagesCount: number;
-  status: Status | null;
+  status: {
+    type: StatusType;
+    acknowledgedAt: string | null;
+  } | null;
   glucose?: GlucoseReading | null;
   glucoseHistory: GlucoseReading[];
 };

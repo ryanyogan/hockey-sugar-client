@@ -1,10 +1,5 @@
+import { StatusType } from "@prisma/client";
 import { useEffect, useState } from "react";
-
-export enum StatusType {
-  OK = "OK",
-  HIGH = "HIGH",
-  LOW = "LOW",
-}
 
 interface StatusDisplayProps {
   status: StatusType;

@@ -163,26 +163,14 @@ export async function updateAthleteGlucoseFromDexcom(
     // Determine the status based on the glucose value
     const statusType = getStatusFromGlucose(reading.value);
 
-    // Create new status
-    const status = await db.status.create({
-      data: {
-        type: statusType,
-        user: {
-          connect: {
-            id: athleteId,
-          },
-        },
-      },
-    });
-
-    // Create new glucose reading
+    // Create new glucose reading with status directly
     const glucoseReading = await db.glucoseReading.create({
       data: {
         value: reading.value,
         unit: reading.unit,
         userId: athleteId,
         recordedById: athleteId,
-        statusId: status.id,
+        statusType,
         source: "dexcom",
       },
     });

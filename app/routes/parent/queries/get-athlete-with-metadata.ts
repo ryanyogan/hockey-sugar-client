@@ -27,24 +27,11 @@ export async function getAthleteWithMetadata(
           id: true,
         },
       },
-      statuses: {
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 1,
-        select: {
-          id: true,
-          type: true,
-          acknowledgedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
       glucoseReadings: {
         orderBy: {
           recordedAt: "desc",
         },
-        take: 10,
+        take: 20,
         select: {
           id: true,
           value: true,
@@ -52,9 +39,11 @@ export async function getAthleteWithMetadata(
           recordedAt: true,
           userId: true,
           recordedById: true,
-          statusId: true,
+          statusType: true,
+          acknowledgedAt: true,
           createdAt: true,
           updatedAt: true,
+          source: true,
         },
       },
     },

@@ -18,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 import { GlucoseChart } from "~/components/glucose/glucose-chart";
-import { StatusDisplay, StatusType } from "~/components/status/status-display";
+import { StatusDisplay } from "~/components/status/status-display";
 import {
   Card,
   CardContent,
@@ -54,17 +54,11 @@ type GlucoseReading = {
   recordedAt: string;
   userId: string;
   recordedById: string;
-  statusId: string | null;
+  statusType: PrismaStatusType;
+  acknowledgedAt: string | null;
   createdAt: string;
   updatedAt: string;
   source: string | null;
-  status: {
-    id: string;
-    type: PrismaStatusType;
-    acknowledgedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-  } | null;
 };
 
 type Athlete = {
@@ -106,7 +100,6 @@ export async function loader({ request }: { request: Request }) {
           include: {
             glucoseReadings: {
               orderBy: { recordedAt: "desc" },
-              include: { status: true },
             },
           },
         },
@@ -122,20 +115,11 @@ export async function loader({ request }: { request: Request }) {
         recordedAt: reading.recordedAt.toISOString(),
         userId: reading.userId,
         recordedById: reading.recordedById,
-        statusId: reading.statusId,
+        statusType: reading.statusType,
+        acknowledgedAt: reading.acknowledgedAt?.toISOString() || null,
         createdAt: reading.createdAt.toISOString(),
         updatedAt: reading.updatedAt.toISOString(),
         source: reading.source,
-        status: reading.status
-          ? {
-              id: reading.status.id,
-              type: reading.status.type,
-              acknowledgedAt:
-                reading.status.acknowledgedAt?.toISOString() || null,
-              createdAt: reading.status.createdAt.toISOString(),
-              updatedAt: reading.status.updatedAt.toISOString(),
-            }
-          : null,
       }));
 
       return {
@@ -153,7 +137,6 @@ export async function loader({ request }: { request: Request }) {
       include: {
         glucoseReadings: {
           orderBy: { recordedAt: "desc" },
-          include: { status: true },
         },
       },
     });
@@ -166,20 +149,11 @@ export async function loader({ request }: { request: Request }) {
         recordedAt: reading.recordedAt.toISOString(),
         userId: reading.userId,
         recordedById: reading.recordedById,
-        statusId: reading.statusId,
+        statusType: reading.statusType,
+        acknowledgedAt: reading.acknowledgedAt?.toISOString() || null,
         createdAt: reading.createdAt.toISOString(),
         updatedAt: reading.updatedAt.toISOString(),
         source: reading.source,
-        status: reading.status
-          ? {
-              id: reading.status.id,
-              type: reading.status.type,
-              acknowledgedAt:
-                reading.status.acknowledgedAt?.toISOString() || null,
-              createdAt: reading.status.createdAt.toISOString(),
-              updatedAt: reading.status.updatedAt.toISOString(),
-            }
-          : null,
       }));
 
       athletes = [
@@ -296,13 +270,13 @@ export default function GlucoseHistory() {
     const standardDeviation = Math.sqrt(avgSquareDiff);
 
     // Count by status
-    const lowCount = readings.filter((r) => r.status?.type === "LOW").length;
-    const highCount = readings.filter((r) => r.status?.type === "HIGH").length;
-    const okCount = readings.filter((r) => r.status?.type === "OK").length;
+    const lowCount = readings.filter((r) => r.statusType === "LOW").length;
+    const highCount = readings.filter((r) => r.statusType === "HIGH").length;
+    const okCount = readings.filter((r) => r.statusType === "OK").length;
 
     // Count acknowledged vs unacknowledged lows
     const acknowledgedLows = readings.filter(
-      (r) => r.status?.type === "LOW" && r.status?.acknowledgedAt !== null
+      (r) => r.statusType === "LOW" && r.acknowledgedAt !== null
     ).length;
     const unacknowledgedLows = lowCount - acknowledgedLows;
 
@@ -356,8 +330,13 @@ export default function GlucoseHistory() {
         date: format(date, "MMM d"),
         fullTime: date.toLocaleString(),
         value: reading.value,
-        status: reading.status?.type || "OK",
-        acknowledged: reading.status?.acknowledgedAt !== null,
+        status:
+          reading.statusType === "LOW"
+            ? "LOW"
+            : reading.statusType === "HIGH"
+            ? "HIGH"
+            : "OK",
+        acknowledged: reading.acknowledgedAt !== null,
         source: reading.source === "dexcom" ? "dexcom" : "manual",
       };
     });
@@ -763,11 +742,15 @@ export default function GlucoseHistory() {
                           <TableCell>
                             <StatusDisplay
                               status={
-                                (reading.status?.type || "OK") as StatusType
+                                reading.statusType === "LOW"
+                                  ? "LOW"
+                                  : reading.statusType === "HIGH"
+                                  ? "HIGH"
+                                  : "OK"
                               }
                               glucoseValue={reading.value}
                               unit={reading.unit}
-                              isAcknowledged={!!reading.status?.acknowledgedAt}
+                              isAcknowledged={!!reading.acknowledgedAt}
                             />
                           </TableCell>
                           <TableCell>
@@ -784,7 +767,7 @@ export default function GlucoseHistory() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            {reading.status?.acknowledgedAt ? (
+                            {reading.acknowledgedAt ? (
                               <span className="text-green-600">Yes</span>
                             ) : (
                               <span className="text-gray-500">No</span>

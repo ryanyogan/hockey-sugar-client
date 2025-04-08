@@ -149,28 +149,20 @@ export async function refreshDexcom({ user }: { user: Partial<User> }) {
       statusType = StatusType.HIGH;
     }
 
-    // Create new status
-    const status = await db.status.create({
-      data: {
-        type: statusType,
-        userId: athlete.id,
-      },
-    });
-
-    // Create new glucose reading
+    // Create new glucose reading with status directly
     const glucoseReading = await db.glucoseReading.create({
       data: {
         value,
         unit: latestReading.unit,
         userId: athlete.id,
         recordedById: user.id,
-        statusId: status.id,
+        statusType,
         source: "dexcom",
       },
     });
 
     console.log("Successfully created new reading:", glucoseReading);
-    return data({ success: true, status, glucoseReading });
+    return data({ success: true, glucoseReading });
   } catch (error) {
     console.error("Error refreshing Dexcom data:", error);
     return data({ error: "Failed to refresh Dexcom data" }, { status: 500 });

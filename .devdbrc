@@ -1,0 +1,6 @@
+[
+  {
+    "type": "sqlite",
+    "path": "/Users/ryan/personal/hockey-sugar/prisma/dev.db"
+  }
+]

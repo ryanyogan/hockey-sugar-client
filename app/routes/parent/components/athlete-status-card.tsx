@@ -176,26 +176,26 @@ export function AthleteStatusCard({
           <div className="flex flex-col items-center justify-center p-6 rounded-lg bg-gray-50">
             <div
               className={`text-4xl font-bold mb-2 ${
-                athlete.status?.type === PrismaStatusType.HIGH
+                athlete.glucose?.statusType === PrismaStatusType.HIGH
                   ? "text-black"
-                  : athlete.status?.type === PrismaStatusType.LOW
+                  : athlete.glucose?.statusType === PrismaStatusType.LOW
                   ? "text-red-600"
                   : "text-green-600"
               }`}
             >
-              {athlete.status?.type || "OK"}
+              {athlete.glucose?.statusType || "OK"}
             </div>
-            {athlete.status?.type === PrismaStatusType.LOW && (
+            {athlete.glucose?.statusType === PrismaStatusType.LOW && (
               <div
                 className={`text-sm ${
-                  athlete.status.acknowledgedAt
+                  athlete.glucose.acknowledgedAt
                     ? "text-green-600"
                     : "text-red-600 font-medium"
                 }`}
               >
-                {athlete.status.acknowledgedAt
+                {athlete.glucose.acknowledgedAt
                   ? `Acknowledged at ${new Date(
-                      athlete.status.acknowledgedAt
+                      athlete.glucose.acknowledgedAt
                     ).toLocaleTimeString()}`
                   : "⚠️ Not acknowledged yet"}
               </div>

@@ -9,18 +9,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const latestStatus = await db.status.findFirst({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-    });
-
     const latestGlucose = await db.glucoseReading.findFirst({
       where: { userId: user.id },
       orderBy: { recordedAt: "desc" },
     });
 
     return Response.json({
-      status: latestStatus,
+      status: latestGlucose
+        ? {
+            type: latestGlucose.statusType,
+            acknowledgedAt: latestGlucose.acknowledgedAt,
+          }
+        : null,
       glucoseReading: latestGlucose,
     });
   } catch (error) {

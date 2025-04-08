@@ -10,30 +10,30 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    const { statusId } = await request.json();
+    const { readingId } = await request.json();
     const userId = user.id;
 
-    // Verify the status belongs to this user
-    const status = await db.status.findFirst({
+    // Verify the reading belongs to this user
+    const reading = await db.glucoseReading.findFirst({
       where: {
-        id: statusId,
+        id: readingId,
         userId,
       },
     });
 
-    if (!status) {
-      return data({ message: "Status not found" }, { status: 404 });
+    if (!reading) {
+      return data({ message: "Reading not found" }, { status: 404 });
     }
 
-    // Update the status
-    await db.status.update({
-      where: { id: statusId },
+    // Update the reading
+    await db.glucoseReading.update({
+      where: { id: readingId },
       data: { acknowledgedAt: new Date() },
     });
 
     return data({ success: true });
   } catch (error) {
-    console.error("Status acknowledge error:", error);
+    console.error("Reading acknowledge error:", error);
     return data({ message: "Server error" }, { status: 500 });
   }
 }

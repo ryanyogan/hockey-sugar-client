@@ -60,25 +60,17 @@ export async function updateGlucose({
     statusType = StatusType.HIGH;
   }
 
-  // Create new status
-  const status = await db.status.create({
-    data: {
-      type: statusType,
-      userId: athleteId,
-    },
-  });
-
-  // Create new glucose reading
+  // Create new glucose reading with status directly
   const glucoseReading = await db.glucoseReading.create({
     data: {
       value: numericValue,
       unit: unit as string,
       userId: athleteId,
       recordedById: user.id!,
-      statusId: status.id,
+      statusType,
       source: "manual",
     },
   });
 
-  return data({ success: true, status, glucoseReading });
+  return data({ success: true, glucoseReading });
 }
