@@ -34,7 +34,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Check if the user already has an athlete
   const existingAthlete = await db.user.findFirst({
     where: {
-      role: "ATHLETE",
       athleteParents: {
         some: {
           parentId: user.id,
@@ -121,10 +120,11 @@ export async function action({ request }: Route.ActionArgs) {
       email: (email as string).toLowerCase(),
       password: password as string,
       role: "ATHLETE",
+      isAthlete: true,
     });
 
     // Create the parent-athlete relationship
-    await db.parentAthlete.create({
+    await db.athleteParent.create({
       data: {
         parentId: user.id,
         athleteId: athlete.id,

@@ -44,62 +44,47 @@ type LoaderData = {
 export async function loader({ request }: { request: Request }) {
   const user = await requireParentUser(request);
 
-  // Get all athletes associated with the current user
-  const athletes = await db.user.findMany({
+  // Get the athlete associated with the current user
+  const athleteRelation = await db.athleteParent.findFirst({
     where: {
-      athleteParents: {
-        some: {
-          parentId: user.id,
-        },
-      },
+      parentId: user.id,
+    },
+    select: {
+      athleteId: true,
+    },
+  });
+
+  if (!athleteRelation) {
+    return {
+      currentUser: user,
+      parents: [],
+    };
+  }
+
+  // Get all parents associated with this athlete
+  const athleteParents = await db.athleteParent.findMany({
+    where: {
+      athleteId: athleteRelation.athleteId,
     },
     include: {
-      athleteParents: {
-        include: {
-          parent: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-              isAdmin: true,
-            },
-          },
+      parent: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isAdmin: true,
         },
       },
     },
   });
 
-  // Extract unique parents from all athletes
-  const parentMap = new Map<
-    string,
-    {
-      id: string;
-      name: string;
-      email: string;
-      role: string;
-      isAdmin: boolean;
-    }
-  >();
-
-  athletes.forEach((athlete) => {
-    athlete.athleteParents.forEach((relation) => {
-      const parent = relation.parent;
-      if (!parentMap.has(parent.id)) {
-        parentMap.set(parent.id, {
-          id: parent.id,
-          name: parent.name,
-          email: parent.email,
-          role: parent.role,
-          isAdmin: parent.isAdmin,
-        });
-      }
-    });
-  });
+  // Extract unique parents
+  const parents = athleteParents.map((relation) => relation.parent);
 
   return {
     currentUser: user,
-    parents: Array.from(parentMap.values()),
+    parents,
   };
 }
 
@@ -124,7 +109,7 @@ export async function action({ request }: { request: Request }) {
 
   try {
     // Delete all parent-athlete relationships for this parent
-    await db.parentAthlete.deleteMany({
+    await db.athleteParent.deleteMany({
       where: {
         parentId: parentId,
       },

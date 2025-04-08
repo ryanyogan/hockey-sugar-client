@@ -339,65 +339,74 @@ export default function ParentDashboard() {
   const isSubmitting = fetcher.state !== "idle";
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Dialogs */}
-      <PreferencesDialog
-        isOpen={isPreferencesDialogOpen}
-        setIsOpen={setIsPreferencesDialogOpen}
-        lowThreshold={lowThreshold}
-        setLowThreshold={setLowThreshold}
-        highThreshold={highThreshold}
-        setHighThreshold={setHighThreshold}
-        updatePreferences={updatePrefs}
-      />
+    <div className="container mx-auto py-8">
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold mb-2">Parent Dashboard</h1>
+        <p className="text-gray-600">
+          Monitor and manage your athlete's glucose data
+        </p>
+      </div>
 
-      <StrobeDialog
-        isOpen={isStrobeDialogOpen}
-        setIsOpen={setIsStrobeDialogOpen}
-        athleteName={athlete?.name}
-        handleSendStrobe={handleSendStrobe}
-      />
+      <div className="container mx-auto py-8">
+        {/* Dialogs */}
+        <PreferencesDialog
+          isOpen={isPreferencesDialogOpen}
+          setIsOpen={setIsPreferencesDialogOpen}
+          lowThreshold={lowThreshold}
+          setLowThreshold={setLowThreshold}
+          highThreshold={highThreshold}
+          setHighThreshold={setHighThreshold}
+          updatePreferences={updatePrefs}
+        />
 
-      <DexcomDialog
-        isOpen={isDexcomDialogOpen}
-        setIsOpen={setIsDexcomDialogOpen}
-        onAuthSuccess={handleDexcomAuthSuccess}
-      />
+        <StrobeDialog
+          isOpen={isStrobeDialogOpen}
+          setIsOpen={setIsStrobeDialogOpen}
+          athleteName={athlete?.name}
+          handleSendStrobe={handleSendStrobe}
+        />
 
-      {athlete ? (
-        <div className="space-y-6">
-          <AthleteStatusCard
-            athlete={athlete}
-            isDexcomConnected={isDexcomConnected}
-            setIsDexcomDialogOpen={setIsDexcomDialogOpen}
-            isRefreshing={isRefreshing}
-            refreshDexcomData={refreshDexcomData}
-            setIsStrobeDialogOpen={setIsStrobeDialogOpen}
-            isSubmitting={isSubmitting}
-            preferences={preferences}
-            setIsPreferencesDialogOpen={setIsPreferencesDialogOpen}
-          />
+        <DexcomDialog
+          isOpen={isDexcomDialogOpen}
+          setIsOpen={setIsDexcomDialogOpen}
+          onAuthSuccess={handleDexcomAuthSuccess}
+        />
 
-          <ManualGlucoseEntryForm
-            handleSubmit={handleGlucoseSubmit}
-            athleteName={athlete.name}
-            isSubmitting={isSubmitting}
-          />
+        {athlete ? (
+          <div className="space-y-6">
+            <AthleteStatusCard
+              athlete={athlete}
+              isDexcomConnected={isDexcomConnected}
+              setIsDexcomDialogOpen={setIsDexcomDialogOpen}
+              isRefreshing={isRefreshing}
+              refreshDexcomData={refreshDexcomData}
+              setIsStrobeDialogOpen={setIsStrobeDialogOpen}
+              isSubmitting={isSubmitting}
+              preferences={preferences}
+              setIsPreferencesDialogOpen={setIsPreferencesDialogOpen}
+            />
 
-          <GlucoseDataDisplay athlete={athlete} />
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <h2 className="text-xl font-bold mb-4">No Athlete Found</h2>
-          <p className="mb-4">
-            It looks like your son's account has not been set up yet.
-          </p>
-          <p>
-            Contact the system administrator to set up your son's account as an
-            athlete.
-          </p>
-        </div>
-      )}
+            <ManualGlucoseEntryForm
+              handleSubmit={handleGlucoseSubmit}
+              athleteName={athlete.name}
+              isSubmitting={isSubmitting}
+            />
+
+            <GlucoseDataDisplay athlete={athlete} />
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <h2 className="text-xl font-bold mb-4">No Athlete Found</h2>
+            <p className="mb-4">
+              It looks like your son's account has not been set up yet.
+            </p>
+            <p>
+              Contact the system administrator to set up your son's account as
+              an athlete.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

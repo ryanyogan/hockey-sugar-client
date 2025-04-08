@@ -70,6 +70,17 @@ CREATE TABLE "UserPreferences" (
     CONSTRAINT "UserPreferences_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- CreateTable
+CREATE TABLE "AthleteParent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "athleteId" TEXT NOT NULL,
+    "parentId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "AthleteParent_athleteId_fkey" FOREIGN KEY ("athleteId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "AthleteParent_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -90,3 +101,12 @@ CREATE UNIQUE INDEX "UserPreferences_userId_key" ON "UserPreferences"("userId");
 
 -- CreateIndex
 CREATE INDEX "UserPreferences_userId_idx" ON "UserPreferences"("userId");
+
+-- CreateIndex
+CREATE INDEX "AthleteParent_athleteId_idx" ON "AthleteParent"("athleteId");
+
+-- CreateIndex
+CREATE INDEX "AthleteParent_parentId_idx" ON "AthleteParent"("parentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AthleteParent_athleteId_parentId_key" ON "AthleteParent"("athleteId", "parentId");

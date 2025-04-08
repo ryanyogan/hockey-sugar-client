@@ -1,4 +1,4 @@
-import type { User } from "@prisma/client";
+import type { Role, User } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { redirect } from "react-router";
@@ -24,7 +24,7 @@ type CreateUserParams = {
   email: string;
   password: string;
   name: string;
-  role: "PARENT" | "COACH" | "ADMIN";
+  role: Role;
   isAdmin?: boolean;
   isAthlete?: boolean;
 };

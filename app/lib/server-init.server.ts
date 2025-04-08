@@ -78,14 +78,30 @@ async function createInitialData() {
   // Create athlete (son)
   const son = await db.user.create({
     data: {
-      name: "Son",
-      email: "son@example.com",
+      name: "Pickle",
+      email: "pickle@jk.com",
       passwordHash: await bcrypt.hash("password123", 10),
-      role: "PARENT", // Using PARENT role but marking as athlete
+      role: "ATHLETE", // Using PARENT role but marking as athlete
       isAthlete: true,
     },
   });
   console.log("Created son user (athlete):", son.id);
+
+  const athleteParent = await db.athleteParent.create({
+    data: {
+      parentId: dad.id,
+      athleteId: son.id,
+    },
+  });
+  console.log("Created athlete parent relationship:", athleteParent.id);
+
+  const athleteParent2 = await db.athleteParent.create({
+    data: {
+      parentId: mom.id,
+      athleteId: son.id,
+    },
+  });
+  console.log("Created athlete parent relationship:", athleteParent2.id);
 
   // Set up default preferences for each parent
   await db.userPreferences.create({
