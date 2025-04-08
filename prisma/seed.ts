@@ -1,39 +1,7 @@
-// app/server-init.server.ts
-import { Role, StatusType } from "@prisma/client";
+import type { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { db } from "./db.server";
-
-/**
- * Initialize the server with default data
- * This runs on application startup to ensure required data exists
- */
-export async function initializeServer() {
-  console.log("Initializing server...");
-
-  try {
-    // Check if any users exist
-    const userCount = await db.user.count();
-
-    if (userCount === 0) {
-      console.log("No users found, creating initial data");
-      await createInitialData();
-    } else {
-      console.log(`${userCount} users found, skipping initialization`);
-
-      // Check if we need to mark an athlete
-      const athleteCount = await db.user.count({
-        where: { isAthlete: true },
-      });
-
-      if (athleteCount === 0) {
-        console.log("No athlete marked, finding and marking one");
-        await markFirstAthlete();
-      }
-    }
-  } catch (error) {
-    console.error("Error initializing server:", error);
-  }
-}
+import { db } from "~/lib/db.server";
+import { StatusType } from "~/types/status";
 
 /**
  * Create initial data for a new installation

@@ -1,11 +1,13 @@
-import { StatusType } from "@prisma/client";
+import { schedules } from "@trigger.dev/sdk/v3";
 import { useEffect, useState } from "react";
 import { data, useFetcher, useLoaderData } from "react-router";
 import { getFormattedAthleteData } from "~/lib/athlete.server";
 import { db } from "~/lib/db.server";
 import { getDexcomToken, updateGlucoseFromDexcom } from "~/lib/dexcom.server";
 import { requireParentUser } from "~/lib/session.server";
+import { StatusType } from "~/types/status";
 import { AthleteStatusCard } from "./components/athlete-status-card";
+import { DexcomStatus } from "./components/dexcom-status";
 import {
   DexcomDialog,
   PreferencesDialog,
@@ -35,11 +37,34 @@ export async function loader({ request }: any) {
     },
   })) || { lowThreshold: 70, highThreshold: 180 };
 
+  // Get the latest glucose reading
+  const latestReading = await db.glucoseReading.findFirst({
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      createdAt: true,
+    },
+  });
+
+  // Get the job status from trigger.dev
+  let isJobRunning = false;
+
+  try {
+    const job = await schedules.list();
+    isJobRunning =
+      job.data.find((job) => job.task === "dexcom-polling")?.active ?? false;
+  } catch (error) {
+    console.error("Failed to get job status:", error);
+  }
+
   return data({
     user,
     athlete,
     dexcomToken,
     preferences,
+    lastReadingTime: latestReading?.createdAt,
+    isJobRunning,
   });
 }
 
@@ -49,6 +74,38 @@ export async function action({ request }: any) {
   const intent = formData.get("intent");
 
   switch (intent) {
+    case "start-dexcom-job": {
+      try {
+        const jobs = await schedules.list();
+        const job = jobs.data.find((job) => job.task === "dexcom-polling");
+
+        if (job) {
+          await schedules.activate(job.id);
+        }
+
+        return data({ success: true });
+      } catch (error) {
+        console.error("Failed to start job:", error);
+        return data({ error: "Failed to start job" }, { status: 500 });
+      }
+    }
+
+    case "stop-dexcom-job": {
+      try {
+        const jobs = await schedules.list();
+        const job = jobs.data.find((job) => job.task === "dexcom-polling");
+
+        if (job) {
+          await schedules.deactivate(job.id);
+        }
+
+        return data({ success: true });
+      } catch (error) {
+        console.error("Failed to stop job:", error);
+        return data({ error: "Failed to stop job" }, { status: 500 });
+      }
+    }
+
     case "update-glucose": {
       const value = formData.get("value");
       const unit = formData.get("unit") || "mg/dL";
@@ -204,8 +261,14 @@ export async function action({ request }: any) {
 }
 
 export default function ParentDashboard() {
-  const { user, athlete, dexcomToken, preferences } =
-    useLoaderData<typeof loader>();
+  const {
+    user,
+    athlete,
+    dexcomToken,
+    preferences,
+    lastReadingTime,
+    isJobRunning,
+  } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
 
   // State hooks
@@ -374,6 +437,13 @@ export default function ParentDashboard() {
 
         {athlete ? (
           <div className="space-y-6">
+            <DexcomStatus
+              isConnected={isDexcomConnected}
+              lastReadingTime={lastReadingTime}
+              isJobRunning={isJobRunning}
+              onRefresh={refreshDexcomData}
+            />
+
             <AthleteStatusCard
               athlete={athlete}
               isDexcomConnected={isDexcomConnected}
