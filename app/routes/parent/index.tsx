@@ -1,171 +1,200 @@
+import { StatusType } from "@prisma/client";
 import { useEffect, useState } from "react";
-import {
-  data,
-  useFetcher,
-  useLoaderData,
-  useNavigate,
-  useOutletContext,
-} from "react-router";
+import { data, useFetcher, useLoaderData } from "react-router";
+import { getFormattedAthleteData } from "~/lib/athlete.server";
 import { db } from "~/lib/db.server";
+import { getDexcomToken, updateGlucoseFromDexcom } from "~/lib/dexcom.server";
 import { requireParentUser } from "~/lib/session.server";
-import { addEventListener, initializeWebSocket } from "~/lib/websocket.client";
-import type { Route } from "./+types";
-import { getAthleteWithMetadata } from "./queries/get-athlete-with-metadata";
-import { getAthletes } from "./queries/get-athletes";
-import { refreshDexcom } from "./queries/refresh-dexcom";
-import { sendMessage } from "./queries/send-message";
-import { sendStrobe } from "./queries/send-strobe";
-import { updatePreferences } from "./queries/update-preferences";
-
-// Move types to a separate file to keep the route module clean
-import type { GlucoseReading, StatusType } from "@prisma/client";
 import { AthleteStatusCard } from "./components/athlete-status-card";
 import {
   DexcomDialog,
   PreferencesDialog,
-  RemoveAthleteDialog,
   StrobeDialog,
 } from "./components/dialogs";
 import { GlucoseDataDisplay } from "./components/glucose-display";
 import { ManualGlucoseEntryForm } from "./components/manual-glucose-entry-form";
-import { NoAthletesDisplay } from "./components/no-athletes-display";
-import { updateGlucose } from "./queries/update-glucose";
-import type { LoaderData } from "./types";
 
 /**
  * Main data loader for the parent dashboard
- * Fetches athlete information, dexcom connection status, and user preferences
  */
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request }: any) {
   const user = await requireParentUser(request);
 
-  // Get all athletes for the parent
-  const athletes = await getAthletes(user);
+  // Get athlete with all formatted data
+  const athlete = await getFormattedAthleteData();
 
-  // Get the selected athlete data
-  let selectedAthlete = null;
-  if (athletes.length > 0) {
-    const athlete = await getAthleteWithMetadata(user, athletes[0]?.id);
-    if (athlete) {
-      selectedAthlete = formatAthleteData(athlete);
-    }
-  }
+  // Get the DexCom token
+  const dexcomToken = await getDexcomToken();
 
-  // Get the user's Dexcom token
-  const dexcomToken = await db.dexcomToken.findUnique({
+  // Get parent preferences
+  const preferences = (await db.userPreferences.findUnique({
     where: { userId: user.id },
-  });
+    select: {
+      lowThreshold: true,
+      highThreshold: true,
+    },
+  })) || { lowThreshold: 70, highThreshold: 180 };
 
-  // Get or create user preferences with default values
-  const preferences = await getUserPreferences(user.id);
-
-  return data<LoaderData>({
+  return data({
     user,
-    athletes,
-    selectedAthlete,
+    athlete,
     dexcomToken,
     preferences,
   });
 }
 
-/**
- * Format athlete data for the UI, converting date objects to ISO strings
- */
-function formatAthleteData(athlete: any) {
-  // Sort glucose readings by recordedAt in descending order
-  const sortedReadings = [...athlete.glucoseReadings].sort(
-    (a: any, b: any) =>
-      new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
-  );
-
-  // Get the latest reading
-  const latestReading = sortedReadings[0];
-
-  return {
-    id: athlete.id,
-    name: athlete.name,
-    unreadMessagesCount: athlete.receivedMessages.length,
-    status: latestReading
-      ? {
-          type: latestReading.statusType as StatusType,
-          acknowledgedAt: latestReading.acknowledgedAt?.toISOString() ?? null,
-          createdAt: latestReading.createdAt.toISOString(),
-          updatedAt: latestReading.updatedAt.toISOString(),
-        }
-      : null,
-    glucose: latestReading
-      ? {
-          ...latestReading,
-          recordedAt: latestReading.recordedAt.toISOString(),
-          createdAt: latestReading.createdAt.toISOString(),
-          updatedAt: latestReading.updatedAt.toISOString(),
-          acknowledgedAt: latestReading.acknowledgedAt?.toISOString() ?? null,
-          source: latestReading.source as "manual" | "dexcom" | undefined,
-        }
-      : null,
-    glucoseHistory: sortedReadings.slice(1).map((reading: GlucoseReading) => ({
-      ...reading,
-      recordedAt: reading.recordedAt.toISOString(),
-      createdAt: reading.createdAt.toISOString(),
-      updatedAt: reading.updatedAt.toISOString(),
-      acknowledgedAt: reading.acknowledgedAt?.toISOString() ?? null,
-      source: reading.source as "manual" | "dexcom" | undefined,
-    })),
-  };
-}
-
-/**
- * Get or create user preferences
- */
-async function getUserPreferences(userId: string) {
-  const preferences = await db.userPreferences.findUnique({
-    where: { userId },
-    select: {
-      lowThreshold: true,
-      highThreshold: true,
-    },
-  });
-
-  // If preferences don't exist, create default ones
-  if (!preferences) {
-    await db.userPreferences.create({
-      data: {
-        userId,
-        lowThreshold: 70,
-        highThreshold: 180,
-      },
-    });
-    return { lowThreshold: 70, highThreshold: 180 };
-  }
-
-  return preferences;
-}
-
-export async function action({ request }: Route.ActionArgs) {
+export async function action({ request }: any) {
   const user = await requireParentUser(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  // Use a switch statement to handle different actions based on intent
   switch (intent) {
     case "update-glucose": {
-      return updateGlucose({ user, formData });
+      const value = formData.get("value");
+      const unit = formData.get("unit") || "mg/dL";
+
+      if (!value) {
+        return data({ error: "Glucose value is required" }, { status: 400 });
+      }
+
+      // Get parent preferences for thresholds
+      const preferences = (await db.userPreferences.findUnique({
+        where: { userId: user.id },
+      })) || { lowThreshold: 70, highThreshold: 180 };
+
+      // Determine status based on glucose value
+      const numericValue = Number(value);
+      let statusType = StatusType.OK as StatusType;
+
+      if (isNaN(numericValue)) {
+        return data({ error: "Invalid glucose value" }, { status: 400 });
+      }
+
+      if (numericValue < preferences.lowThreshold) {
+        statusType = StatusType.LOW;
+      } else if (numericValue > preferences.highThreshold) {
+        statusType = StatusType.HIGH;
+      }
+
+      // Create new status
+      const status = await db.status.create({
+        data: {
+          type: statusType,
+        },
+      });
+
+      // Create new glucose reading
+      const glucoseReading = await db.glucoseReading.create({
+        data: {
+          value: numericValue,
+          unit: unit as string,
+          recordedById: user.id,
+          statusId: status.id,
+          source: "manual",
+        },
+      });
+
+      return data({ success: true, status, glucoseReading });
     }
 
     case "send-message": {
-      return sendMessage({ user, formData });
+      const content = formData.get("content");
+      const isUrgent = formData.get("isUrgent") === "true";
+
+      if (!content || typeof content !== "string") {
+        return data({ error: "Message content is required" }, { status: 400 });
+      }
+
+      // Get the athlete
+      const athlete = await db.user.findFirst({
+        where: { isAthlete: true },
+      });
+
+      if (!athlete) {
+        return data({ error: "Athlete not found" }, { status: 404 });
+      }
+
+      // Create new message
+      const message = await db.message.create({
+        data: {
+          content,
+          isUrgent,
+          senderId: user.id,
+          receiverId: athlete.id,
+        },
+      });
+
+      return data({ success: true, message });
     }
 
     case "send-strobe": {
-      return sendStrobe({ user, formData });
+      // Get the athlete
+      const athlete = await db.user.findFirst({
+        where: { isAthlete: true },
+      });
+
+      if (!athlete) {
+        return data({ error: "Athlete not found" }, { status: 404 });
+      }
+
+      // Create urgent strobe message
+      const message = await db.message.create({
+        data: {
+          content: "⚠️ STROBE ALERT! PLEASE CHECK YOUR PHONE IMMEDIATELY!",
+          isUrgent: true,
+          senderId: user.id,
+          receiverId: athlete.id,
+        },
+      });
+
+      return data({ success: true, message });
     }
 
     case "refresh-dexcom": {
-      return refreshDexcom({ user });
+      const result = await updateGlucoseFromDexcom(user.id);
+      return data(result);
     }
 
     case "update-preferences": {
-      return updatePreferences({ user, formData });
+      const lowThreshold = formData.get("lowThreshold");
+      const highThreshold = formData.get("highThreshold");
+
+      if (
+        typeof lowThreshold !== "string" ||
+        typeof highThreshold !== "string" ||
+        isNaN(Number(lowThreshold)) ||
+        isNaN(Number(highThreshold))
+      ) {
+        return data({ error: "Invalid threshold values" }, { status: 400 });
+      }
+
+      const lowValue = Number(lowThreshold);
+      const highValue = Number(highThreshold);
+
+      if (lowValue >= highValue) {
+        return data(
+          { error: "Low threshold must be less than high threshold" },
+          { status: 400 }
+        );
+      }
+
+      // Update or create preferences
+      await db.userPreferences.upsert({
+        where: {
+          userId: user.id,
+        },
+        update: {
+          lowThreshold: lowValue,
+          highThreshold: highValue,
+        },
+        create: {
+          userId: user.id,
+          lowThreshold: lowValue,
+          highThreshold: highValue,
+        },
+      });
+
+      return data({ success: true });
     }
 
     default: {
@@ -175,19 +204,9 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function ParentDashboard() {
-  const { user, athletes, selectedAthlete, dexcomToken, preferences } =
+  const { user, athlete, dexcomToken, preferences } =
     useLoaderData<typeof loader>();
-  const context = useOutletContext<{
-    selectedAthleteId: string | null;
-  }>();
-  const selectedAthleteId = context.selectedAthleteId ?? null;
-  const fetcher = useFetcher<{
-    success?: boolean;
-    error?: string;
-    noNewData?: boolean;
-    needsReauth?: boolean;
-  }>();
-  const navigate = useNavigate();
+  const fetcher = useFetcher();
 
   // State hooks
   const [isStrobeDialogOpen, setIsStrobeDialogOpen] = useState(false);
@@ -195,10 +214,6 @@ export default function ParentDashboard() {
   const [isDexcomConnected, setIsDexcomConnected] = useState(!!dexcomToken);
   const [dexcomError, setDexcomError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isRemoveAthleteDialogOpen, setIsRemoveAthleteDialogOpen] =
-    useState(false);
-  const [athleteToRemove, setAthleteToRemove] = useState<string | null>(null);
-  const [isRemovingAthlete, setIsRemovingAthlete] = useState(false);
   const [lowThreshold, setLowThreshold] = useState(
     preferences?.lowThreshold || 70
   );
@@ -206,80 +221,6 @@ export default function ParentDashboard() {
     preferences?.highThreshold || 180
   );
   const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
-  const [noNewDataMessage, setNoNewDataMessage] = useState<string | null>(null);
-  const [localAthleteData, setLocalAthleteData] = useState<any>(null);
-
-  // Initialize WebSocket connection
-  useEffect(() => {
-    // Initialize WebSocket connection
-    initializeWebSocket();
-
-    // Set up event listeners for WebSocket messages
-    const removeGlucoseUpdateListener = addEventListener(
-      "glucose-update",
-      (data) => {
-        console.log("Received glucose update:", data);
-
-        // Update local athlete data if it matches the selected athlete
-        if (data.athleteId === selectedAthleteId && localAthleteData) {
-          const updatedAthlete = { ...localAthleteData };
-
-          // Update the latest glucose reading
-          updatedAthlete.glucose = data.reading;
-
-          // Update the status
-          updatedAthlete.status = {
-            type: data.reading.statusType,
-            acknowledgedAt: data.reading.acknowledgedAt,
-            createdAt: data.reading.createdAt,
-            updatedAt: data.reading.updatedAt,
-          };
-
-          // Add the new reading to the history
-          updatedAthlete.glucoseHistory = [
-            data.reading,
-            ...(localAthleteData.glucoseHistory || []),
-          ].slice(0, 20); // Keep only the latest 20 readings
-
-          setLocalAthleteData(updatedAthlete);
-        }
-      }
-    );
-
-    const removeAuthErrorListener = addEventListener(
-      "dexcom-auth-error",
-      (data) => {
-        console.log("Received Dexcom auth error:", data);
-
-        // Show the Dexcom dialog if the error is for the selected athlete
-        if (data.athleteId === selectedAthleteId) {
-          setDexcomError(data.message);
-          setIsDexcomConnected(false);
-          setIsDexcomDialogOpen(true);
-        }
-      }
-    );
-
-    // Clean up event listeners when component unmounts
-    return () => {
-      removeGlucoseUpdateListener();
-      removeAuthErrorListener();
-    };
-  }, [selectedAthleteId]);
-
-  // Initialize local athlete data when selectedAthlete changes
-  useEffect(() => {
-    if (selectedAthlete) {
-      setLocalAthleteData(selectedAthlete);
-    }
-  }, [selectedAthlete]);
-
-  // Show the remove athlete dialog if there are multiple athletes
-  useEffect(() => {
-    if (athletes.length > 1) {
-      setIsRemoveAthleteDialogOpen(true);
-    }
-  }, [athletes.length]);
 
   // Check URL parameters for Dexcom callback results
   useEffect(() => {
@@ -314,13 +255,7 @@ export default function ParentDashboard() {
       // Refresh the page to show updated data
       window.location.reload();
     } else if (response.noNewData) {
-      setNoNewDataMessage(
-        "Dexcom data has not updated, please try again in a few minutes."
-      );
-      // Clear the message after 5 seconds
-      setTimeout(() => {
-        setNoNewDataMessage(null);
-      }, 5000);
+      alert("Dexcom has not provided a new value yet");
     } else if (response.needsReauth) {
       setDexcomError("Dexcom connection expired. Please reconnect.");
       setIsDexcomConnected(false);
@@ -357,17 +292,6 @@ export default function ParentDashboard() {
       return;
     }
 
-    // Check if token is expired or about to expire (within 5 minutes)
-    const isExpired = new Date(dexcomToken.expiresAt) < new Date();
-    const isExpiringSoon =
-      new Date(dexcomToken.expiresAt) < new Date(Date.now() + 5 * 60 * 1000);
-
-    if (isExpired || isExpiringSoon) {
-      console.log("Dexcom token expired or expiring soon");
-      // The server will handle the refresh, but we'll show a message
-      setDexcomError("Refreshing Dexcom connection...");
-    }
-
     setIsRefreshing(true);
     setDexcomError(null);
 
@@ -391,32 +315,14 @@ export default function ParentDashboard() {
   };
 
   const handleSendStrobe = () => {
-    if (!selectedAthleteId) return;
-
     fetcher.submit(
       {
         intent: "send-strobe",
-        athleteId: selectedAthleteId,
       },
       { method: "post" }
     );
 
     setIsStrobeDialogOpen(false);
-  };
-
-  const handleRemoveAthlete = () => {
-    if (!athleteToRemove) return;
-
-    setIsRemovingAthlete(true);
-
-    const formData = new FormData();
-    formData.append("intent", "remove-athlete");
-    formData.append("athleteId", athleteToRemove);
-
-    fetcher.submit(formData, { method: "post" });
-
-    // Redirect to the parent page with the athleteRemoved parameter
-    navigate("/parent?athleteRemoved=true");
   };
 
   // Function to update preferences
@@ -435,16 +341,6 @@ export default function ParentDashboard() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Dialogs */}
-      <RemoveAthleteDialog
-        isOpen={isRemoveAthleteDialogOpen}
-        setIsOpen={setIsRemoveAthleteDialogOpen}
-        athleteToRemove={athleteToRemove}
-        setAthleteToRemove={setAthleteToRemove}
-        handleRemoveAthlete={handleRemoveAthlete}
-        isRemoving={isRemovingAthlete}
-        athletes={athletes}
-      />
-
       <PreferencesDialog
         isOpen={isPreferencesDialogOpen}
         setIsOpen={setIsPreferencesDialogOpen}
@@ -458,7 +354,7 @@ export default function ParentDashboard() {
       <StrobeDialog
         isOpen={isStrobeDialogOpen}
         setIsOpen={setIsStrobeDialogOpen}
-        athleteName={selectedAthlete?.name}
+        athleteName={athlete?.name}
         handleSendStrobe={handleSendStrobe}
       />
 
@@ -468,22 +364,15 @@ export default function ParentDashboard() {
         onAuthSuccess={handleDexcomAuthSuccess}
       />
 
-      {noNewDataMessage && (
-        <div className="bg-orange-500 text-white p-3 rounded-md mb-4">
-          {noNewDataMessage}
-        </div>
-      )}
-
-      {localAthleteData ? (
+      {athlete ? (
         <div className="space-y-6">
           <AthleteStatusCard
-            athlete={localAthleteData}
+            athlete={athlete}
             isDexcomConnected={isDexcomConnected}
             setIsDexcomDialogOpen={setIsDexcomDialogOpen}
             isRefreshing={isRefreshing}
             refreshDexcomData={refreshDexcomData}
             setIsStrobeDialogOpen={setIsStrobeDialogOpen}
-            selectedAthleteId={selectedAthleteId}
             isSubmitting={isSubmitting}
             preferences={preferences}
             setIsPreferencesDialogOpen={setIsPreferencesDialogOpen}
@@ -491,15 +380,23 @@ export default function ParentDashboard() {
 
           <ManualGlucoseEntryForm
             handleSubmit={handleGlucoseSubmit}
-            athleteName={localAthleteData.name}
-            selectedAthleteId={selectedAthleteId}
+            athleteName={athlete.name}
             isSubmitting={isSubmitting}
           />
 
-          <GlucoseDataDisplay athlete={localAthleteData} />
+          <GlucoseDataDisplay athlete={athlete} />
         </div>
       ) : (
-        <NoAthletesDisplay />
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <h2 className="text-xl font-bold mb-4">No Athlete Found</h2>
+          <p className="mb-4">
+            It looks like your son's account has not been set up yet.
+          </p>
+          <p>
+            Contact the system administrator to set up your son's account as an
+            athlete.
+          </p>
+        </div>
       )}
     </div>
   );

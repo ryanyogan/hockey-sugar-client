@@ -9,8 +9,9 @@ export type User = {
   id: string;
   email: string;
   name: string;
-  role: "PARENT" | "COACH" | "ATHLETE" | "ADMIN";
+  role: "PARENT" | "COACH" | "ADMIN";
   isAdmin: boolean;
+  isAthlete: boolean;
 };
 
 // Create session storage
@@ -77,6 +78,7 @@ export async function getUserFromSession(
         name: true,
         role: true,
         isAdmin: true,
+        isAthlete: true,
       },
     });
     return user;
@@ -100,15 +102,7 @@ export async function requireUser(request: Request): Promise<User> {
 
 export async function requireParentUser(request: Request): Promise<User> {
   const user = await requireUser(request);
-  if (user.role !== "PARENT" && user.role !== "COACH") {
-    throw redirect("/");
-  }
-  return user;
-}
-
-export async function requireAthleteUser(request: Request): Promise<User> {
-  const user = await requireUser(request);
-  if (user.role !== "ATHLETE") {
+  if (user.role !== "PARENT" && user.role !== "COACH" && !user.isAdmin) {
     throw redirect("/");
   }
   return user;

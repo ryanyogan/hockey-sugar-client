@@ -1,10 +1,6 @@
+import type { StatusType } from "@prisma/client";
 import { format, parseISO, subDays } from "date-fns";
-import {
-  data,
-  useLoaderData,
-  useNavigate,
-  useSearchParams,
-} from "react-router";
+import { data, useLoaderData, useSearchParams } from "react-router";
 import {
   Bar,
   BarChart,
@@ -18,7 +14,6 @@ import {
   YAxis,
 } from "recharts";
 import { GlucoseChart } from "~/components/glucose/glucose-chart";
-import { StatusDisplay } from "~/components/status/status-display";
 import {
   Card,
   CardContent,
@@ -42,8 +37,9 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { getAthlete } from "~/lib/athlete.server";
 import { db } from "~/lib/db.server";
-import { requireUser } from "~/lib/session.server";
+import { requireParentUser } from "~/lib/session.server";
 import { PrismaStatusType } from "~/types/prisma";
 
 // Define types for the data we'll be working with
@@ -52,21 +48,24 @@ type GlucoseReading = {
   value: number;
   unit: string;
   recordedAt: string;
-  userId: string;
   recordedById: string;
-  statusType: PrismaStatusType;
-  acknowledgedAt: string | null;
+  statusId: string | null;
   createdAt: string;
   updatedAt: string;
   source: string | null;
+  status: {
+    id: string;
+    type: PrismaStatusType;
+    acknowledgedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
 };
 
 type Athlete = {
   id: string;
   name: string;
-  highThreshold: number;
-  lowThreshold: number;
-  glucoseReadings: GlucoseReading[];
+  email: string;
 };
 
 type LoaderData = {
@@ -77,96 +76,41 @@ type LoaderData = {
     role: string;
     isAdmin: boolean;
   };
-  athletes: Athlete[];
-  selectedAthlete: Athlete | null;
+  athlete: Athlete | null;
+  glucoseReadings: GlucoseReading[];
   timeRange: string;
+  preferences: {
+    lowThreshold: number;
+    highThreshold: number;
+  };
 };
 
 export async function loader({ request }: { request: Request }) {
-  const user = await requireUser(request);
+  const user = await requireParentUser(request);
   const url = new URL(request.url);
-  const athleteId = url.searchParams.get("athleteId");
   const timeRange = url.searchParams.get("timeRange") || "7d";
 
-  // Get all athletes for this user
-  let athletes: Athlete[] = [];
+  // Get the single athlete
+  const athlete = await getAthlete();
 
-  if (user.role === "PARENT") {
-    // Get athletes connected to this parent
-    const parentAthletes = await db.parentAthlete.findMany({
-      where: { parentId: user.id },
-      include: {
-        athlete: {
-          include: {
-            glucoseReadings: {
-              orderBy: { recordedAt: "desc" },
-            },
-          },
-        },
-      },
+  if (!athlete) {
+    return data({
+      user,
+      athlete: null,
+      glucoseReadings: [],
+      timeRange,
+      preferences: { lowThreshold: 70, highThreshold: 180 },
     });
-
-    // Convert the database results to our expected format
-    athletes = parentAthletes.map((pa) => {
-      const readings = pa.athlete.glucoseReadings.map((reading) => ({
-        id: reading.id,
-        value: reading.value,
-        unit: reading.unit,
-        recordedAt: reading.recordedAt.toISOString(),
-        userId: reading.userId,
-        recordedById: reading.recordedById,
-        statusType: reading.statusType,
-        acknowledgedAt: reading.acknowledgedAt?.toISOString() || null,
-        createdAt: reading.createdAt.toISOString(),
-        updatedAt: reading.updatedAt.toISOString(),
-        source: reading.source,
-      }));
-
-      return {
-        id: pa.athlete.id,
-        name: pa.athlete.name,
-        highThreshold: 180,
-        lowThreshold: 70,
-        glucoseReadings: readings,
-      };
-    });
-  } else if (user.role === "ATHLETE") {
-    // Get this athlete's readings
-    const athlete = await db.user.findUnique({
-      where: { id: user.id },
-      include: {
-        glucoseReadings: {
-          orderBy: { recordedAt: "desc" },
-        },
-      },
-    });
-
-    if (athlete) {
-      const readings = athlete.glucoseReadings.map((reading) => ({
-        id: reading.id,
-        value: reading.value,
-        unit: reading.unit,
-        recordedAt: reading.recordedAt.toISOString(),
-        userId: reading.userId,
-        recordedById: reading.recordedById,
-        statusType: reading.statusType,
-        acknowledgedAt: reading.acknowledgedAt?.toISOString() || null,
-        createdAt: reading.createdAt.toISOString(),
-        updatedAt: reading.updatedAt.toISOString(),
-        source: reading.source,
-      }));
-
-      athletes = [
-        {
-          id: athlete.id,
-          name: athlete.name,
-          highThreshold: 180,
-          lowThreshold: 70,
-          glucoseReadings: readings,
-        },
-      ];
-    }
   }
+
+  // Get user preferences
+  const preferences = (await db.userPreferences.findUnique({
+    where: { userId: user.id },
+    select: {
+      lowThreshold: true,
+      highThreshold: true,
+    },
+  })) || { lowThreshold: 70, highThreshold: 180 };
 
   // Filter readings based on time range
   const now = new Date();
@@ -192,42 +136,50 @@ export async function loader({ request }: { request: Request }) {
       startDate = subDays(now, 7);
   }
 
-  // Filter readings for each athlete
-  athletes = athletes.map((athlete) => ({
-    ...athlete,
-    glucoseReadings: athlete.glucoseReadings.filter(
-      (reading) => new Date(reading.recordedAt) >= startDate
-    ),
+  // Get glucose readings - no need to filter by userId anymore
+  const readings = await db.glucoseReading.findMany({
+    where: {
+      recordedAt: {
+        gte: startDate,
+      },
+    },
+    orderBy: {
+      recordedAt: "desc",
+    },
+    include: {
+      status: true,
+    },
+  });
+
+  // Format the readings for the frontend
+  const formattedReadings = readings.map((reading) => ({
+    ...reading,
+    recordedAt: reading.recordedAt.toISOString(),
+    createdAt: reading.createdAt.toISOString(),
+    updatedAt: reading.updatedAt.toISOString(),
+    status: reading.status
+      ? {
+          ...reading.status,
+          acknowledgedAt: reading.status.acknowledgedAt?.toISOString() || null,
+          createdAt: reading.status.createdAt.toISOString(),
+          updatedAt: reading.status.updatedAt.toISOString(),
+        }
+      : null,
   }));
 
-  // Get selected athlete
-  let selectedAthlete: Athlete | null = null;
-
-  if (athleteId && athletes.length > 0) {
-    selectedAthlete = athletes.find((a) => a.id === athleteId) || null;
-  } else if (athletes.length > 0) {
-    selectedAthlete = athletes[0];
-  }
-
-  return data({
+  return data<LoaderData>({
     user,
-    athletes,
-    selectedAthlete,
+    athlete,
+    glucoseReadings: formattedReadings,
     timeRange,
+    preferences,
   });
 }
 
 export default function GlucoseHistory() {
-  const { user, athletes, selectedAthlete, timeRange } =
+  const { user, athlete, glucoseReadings, timeRange, preferences } =
     useLoaderData<LoaderData>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-
-  const handleAthleteChange = (athleteId: string) => {
-    const params = new URLSearchParams(searchParams);
-    params.set("athleteId", athleteId);
-    setSearchParams(params);
-  };
 
   const handleTimeRangeChange = (range: string) => {
     const params = new URLSearchParams(searchParams);
@@ -270,19 +222,21 @@ export default function GlucoseHistory() {
     const standardDeviation = Math.sqrt(avgSquareDiff);
 
     // Count by status
-    const lowCount = readings.filter((r) => r.statusType === "LOW").length;
-    const highCount = readings.filter((r) => r.statusType === "HIGH").length;
-    const okCount = readings.filter((r) => r.statusType === "OK").length;
+    const lowCount = readings.filter((r) => r.status?.type === "LOW").length;
+    const highCount = readings.filter((r) => r.status?.type === "HIGH").length;
+    const okCount = readings.filter((r) => r.status?.type === "OK").length;
 
     // Count acknowledged vs unacknowledged lows
     const acknowledgedLows = readings.filter(
-      (r) => r.statusType === "LOW" && r.acknowledgedAt !== null
+      (r) => r.status?.type === "LOW" && r.status?.acknowledgedAt !== null
     ).length;
     const unacknowledgedLows = lowCount - acknowledgedLows;
 
-    // Calculate time in range (70-180 mg/dL)
+    // Calculate time in range (using parent preferences)
     const inRangeCount = readings.filter(
-      (r) => r.value >= 70 && r.value <= 180
+      (r) =>
+        r.value >= preferences.lowThreshold &&
+        r.value <= preferences.highThreshold
     ).length;
     const timeInRange = (inRangeCount / readings.length) * 100;
 
@@ -307,9 +261,7 @@ export default function GlucoseHistory() {
     };
   };
 
-  const stats = selectedAthlete
-    ? calculateStats(selectedAthlete.glucoseReadings)
-    : null;
+  const stats = calculateStats(glucoseReadings);
 
   // Prepare data for charts
   const prepareChartData = (readings: GlucoseReading[]) => {
@@ -330,21 +282,14 @@ export default function GlucoseHistory() {
         date: format(date, "MMM d"),
         fullTime: date.toLocaleString(),
         value: reading.value,
-        status:
-          reading.statusType === "LOW"
-            ? "LOW"
-            : reading.statusType === "HIGH"
-            ? "HIGH"
-            : "OK",
-        acknowledged: reading.acknowledgedAt !== null,
+        status: reading.status?.type || "OK",
+        acknowledged: reading.status?.acknowledgedAt !== null,
         source: reading.source === "dexcom" ? "dexcom" : "manual",
       };
     });
   };
 
-  const chartData = selectedAthlete
-    ? prepareChartData(selectedAthlete.glucoseReadings)
-    : [];
+  const chartData = prepareChartData(glucoseReadings);
 
   // Prepare data for daily averages chart
   const prepareDailyAveragesData = (readings: GlucoseReading[]) => {
@@ -372,33 +317,31 @@ export default function GlucoseHistory() {
         };
       })
       .sort((a, b) => {
-        const dateA = parseISO(a.date);
-        const dateB = parseISO(b.date);
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
         return dateA.getTime() - dateB.getTime();
       });
   };
 
-  const dailyAveragesData = selectedAthlete
-    ? prepareDailyAveragesData(selectedAthlete.glucoseReadings)
-    : [];
+  const dailyAveragesData = prepareDailyAveragesData(glucoseReadings);
 
   // Prepare data for status distribution pie chart
   const statusDistributionData = [
-    { name: "Low", value: stats?.lowCount || 0, color: "#ef4444" },
-    { name: "OK", value: stats?.okCount || 0, color: "#22c55e" },
-    { name: "High", value: stats?.highCount || 0, color: "#f97316" },
+    { name: "Low", value: stats.lowCount || 0, color: "#ef4444" },
+    { name: "OK", value: stats.okCount || 0, color: "#22c55e" },
+    { name: "High", value: stats.highCount || 0, color: "#f97316" },
   ];
 
   // Prepare data for source distribution pie chart
   const sourceDistributionData = [
     {
       name: "Manual",
-      value: stats?.readingsBySource.manual || 0,
+      value: stats.readingsBySource.manual || 0,
       color: "#3b82f6",
     },
     {
       name: "Dexcom",
-      value: stats?.readingsBySource.dexcom || 0,
+      value: stats.readingsBySource.dexcom || 0,
       color: "#8b5cf6",
     },
   ];
@@ -408,23 +351,12 @@ export default function GlucoseHistory() {
       <h1 className="text-3xl font-bold mb-6">Glucose History</h1>
 
       <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="w-full md:w-1/3">
-          <Select
-            value={selectedAthlete?.id || ""}
-            onValueChange={handleAthleteChange}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select athlete" />
-            </SelectTrigger>
-            <SelectContent>
-              {athletes.map((athlete) => (
-                <SelectItem key={athlete.id} value={athlete.id}>
-                  {athlete.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {athlete && (
+          <div className="w-full md:w-1/3 p-4 bg-blue-50 rounded-lg">
+            <h2 className="text-lg font-medium text-blue-800">Athlete</h2>
+            <p className="text-blue-600">{athlete.name}</p>
+          </div>
+        )}
 
         <div className="w-full md:w-1/3">
           <Select value={timeRange} onValueChange={handleTimeRangeChange}>
@@ -442,7 +374,7 @@ export default function GlucoseHistory() {
         </div>
       </div>
 
-      {selectedAthlete && stats ? (
+      {athlete && glucoseReadings.length > 0 ? (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card>
@@ -468,7 +400,9 @@ export default function GlucoseHistory() {
                 <div className="text-2xl font-bold">
                   {stats.timeInRange.toFixed(1)}%
                 </div>
-                <p className="text-xs text-gray-500">70-180 mg/dL</p>
+                <p className="text-xs text-gray-500">
+                  {preferences.lowThreshold}-{preferences.highThreshold} mg/dL
+                </p>
               </CardContent>
             </Card>
 
@@ -515,9 +449,17 @@ export default function GlucoseHistory() {
                 <CardContent>
                   <div className="h-80">
                     <GlucoseChart
-                      readings={selectedAthlete.glucoseReadings}
-                      highThreshold={selectedAthlete.highThreshold}
-                      lowThreshold={selectedAthlete.lowThreshold}
+                      readings={glucoseReadings.map((reading) => ({
+                        ...reading,
+                        status: reading.status
+                          ? {
+                              type: reading.status.type as StatusType,
+                              acknowledgedAt: reading.status.acknowledgedAt,
+                            }
+                          : null,
+                      }))}
+                      highThreshold={preferences.highThreshold}
+                      lowThreshold={preferences.lowThreshold}
                     />
                   </div>
                 </CardContent>
@@ -641,9 +583,7 @@ export default function GlucoseHistory() {
                             <TableCell className="font-medium">
                               Total Readings
                             </TableCell>
-                            <TableCell>
-                              {selectedAthlete.glucoseReadings.length}
-                            </TableCell>
+                            <TableCell>{glucoseReadings.length}</TableCell>
                           </TableRow>
                           <TableRow>
                             <TableCell className="font-medium">
@@ -728,7 +668,7 @@ export default function GlucoseHistory() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedAthlete.glucoseReadings.map((reading) => (
+                      {glucoseReadings.map((reading) => (
                         <TableRow key={reading.id}>
                           <TableCell>
                             {format(
@@ -740,34 +680,33 @@ export default function GlucoseHistory() {
                             {reading.value} {reading.unit}
                           </TableCell>
                           <TableCell>
-                            <StatusDisplay
-                              status={
-                                reading.statusType === "LOW"
-                                  ? "LOW"
-                                  : reading.statusType === "HIGH"
-                                  ? "HIGH"
-                                  : "OK"
-                              }
-                              glucoseValue={reading.value}
-                              unit={reading.unit}
-                              isAcknowledged={!!reading.acknowledgedAt}
-                            />
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs ${
+                                reading.status?.type === "HIGH"
+                                  ? "bg-black text-white"
+                                  : reading.status?.type === "LOW"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-green-100 text-green-800"
+                              }`}
+                            >
+                              {reading.status?.type || "OK"}
+                            </span>
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`px-2 py-1 rounded text-xs ${
+                              className={`px-2 py-1 rounded-full text-xs ${
                                 reading.source === "dexcom"
                                   ? "bg-purple-100 text-purple-700"
                                   : "bg-blue-100 text-blue-700"
                               }`}
                             >
                               {reading.source === "dexcom"
-                                ? "From Dexcom"
-                                : "Manual Entry"}
+                                ? "Dexcom"
+                                : "Manual"}
                             </span>
                           </TableCell>
                           <TableCell>
-                            {reading.acknowledgedAt ? (
+                            {reading.status?.acknowledgedAt ? (
                               <span className="text-green-600">Yes</span>
                             ) : (
                               <span className="text-gray-500">No</span>
@@ -784,13 +723,26 @@ export default function GlucoseHistory() {
         </>
       ) : (
         <Card>
-          <CardContent className="py-8">
-            <div className="text-center">
-              <p className="text-lg font-medium">No athlete selected</p>
-              <p className="text-sm text-gray-500">
-                Please select an athlete to view glucose history
-              </p>
-            </div>
+          <CardContent className="py-8 text-center">
+            {!athlete ? (
+              <div>
+                <p className="text-lg font-medium mb-2">No athlete found</p>
+                <p className="text-sm text-gray-500">
+                  Please contact the system administrator to set up your athlete
+                  account.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-lg font-medium mb-2">
+                  No glucose readings available
+                </p>
+                <p className="text-sm text-gray-500">
+                  Please add some readings manually or connect Dexcom to view
+                  history.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

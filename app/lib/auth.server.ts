@@ -24,8 +24,9 @@ type CreateUserParams = {
   email: string;
   password: string;
   name: string;
-  role: "PARENT" | "COACH" | "ATHLETE";
+  role: "PARENT" | "COACH" | "ADMIN";
   isAdmin?: boolean;
+  isAthlete?: boolean;
 };
 
 /**
@@ -37,6 +38,7 @@ export async function createUser({
   name,
   role,
   isAdmin = false,
+  isAthlete = false,
 }: CreateUserParams) {
   const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -47,6 +49,7 @@ export async function createUser({
       name,
       role,
       isAdmin,
+      isAthlete,
     },
   });
 }
@@ -120,7 +123,7 @@ export async function requireParentUser(request: Request): Promise<User> {
 
   const dbUser = await getUserById(user.id);
 
-  if (!dbUser || dbUser.role !== "PARENT") {
+  if (!dbUser || (dbUser.role !== "PARENT" && dbUser.role !== "COACH")) {
     throw redirect("/login");
   }
 

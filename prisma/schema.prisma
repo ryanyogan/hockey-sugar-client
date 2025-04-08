@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -15,19 +12,15 @@ model User {
   email            String           @unique
   name             String
   passwordHash     String
-  role             Role             @default(ATHLETE)
+  role             Role             @default(PARENT)
   isAdmin          Boolean          @default(false)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
-  parentAthletes   ParentAthlete[]  @relation("ParentToAthlete")
-  athleteParents   ParentAthlete[]  @relation("AthleteToParent")
   sentMessages     Message[]        @relation("SentMessages")
   receivedMessages Message[]        @relation("ReceivedMessages")
-  glucoseReadings  GlucoseReading[]
-  recordedReadings GlucoseReading[] @relation("RecordedReadings")
-  dexcomToken      DexcomToken?
-  dexcomTokens     DexcomToken[]    @relation("AthleteDexcomToken")
+  recordedReadings GlucoseReading[] @relation("RecordedBy")
   preferences      UserPreferences?
+  isAthlete        Boolean          @default(false) // Flag to identify the single athlete
 
   @@index([email])
 }
@@ -36,26 +29,32 @@ enum Role {
   ADMIN
   PARENT
   COACH
-  ATHLETE
 }
 
 model GlucoseReading {
-  id             String     @id @default(cuid())
-  value          Float
-  unit           String     @default("mg/dL")
-  recordedAt     DateTime   @default(now())
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  userId         String
-  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  recordedById   String
-  recordedBy     User       @relation("RecordedReadings", fields: [recordedById], references: [id], onDelete: Cascade)
-  statusType     StatusType @default(OK)
-  acknowledgedAt DateTime?
-  source         String?    @default("manual")
+  id           String   @id @default(cuid())
+  value        Float
+  unit         String   @default("mg/dL")
+  recordedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  // The recordedById remains - which parent recorded this reading
+  recordedById String
+  recordedBy   User     @relation("RecordedBy", fields: [recordedById], references: [id], onDelete: Cascade)
+  status       Status?  @relation(fields: [statusId], references: [id])
+  statusId     String?
+  source       String?  @default("manual")
 
-  @@index([userId])
   @@index([recordedById])
+}
+
+model Status {
+  id              String           @id @default(cuid())
+  type            StatusType
+  acknowledgedAt  DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  glucoseReadings GlucoseReading[]
 }
 
 enum StatusType {
@@ -80,34 +79,13 @@ model Message {
   @@index([receiverId])
 }
 
-model ParentAthlete {
-  id        String   @id @default(cuid())
-  parentId  String
-  athleteId String
-  parent    User     @relation("ParentToAthlete", fields: [parentId], references: [id], onDelete: Cascade)
-  athlete   User     @relation("AthleteToParent", fields: [athleteId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([parentId, athleteId])
-  @@index([parentId])
-  @@index([athleteId])
-}
-
 model DexcomToken {
   id           String   @id @default(cuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  athleteId    String?
-  athlete      User?    @relation("AthleteDexcomToken", fields: [athleteId], references: [id], onDelete: SetNull)
   accessToken  String
   refreshToken String
   expiresAt    DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
-  @@index([userId])
-  @@index([athleteId])
 }
 
 model UserPreferences {

@@ -1,7 +1,7 @@
+// app/routes/api/dexcom/callback.ts
 import { redirect } from "react-router";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
-import type { Route } from "./+types/callback";
 
 // Dexcom API endpoints
 const DEXCOM_TOKEN_URL = "https://api.dexcom.com/v2/oauth2/token";
@@ -23,8 +23,10 @@ const REDIRECT_URI = IS_DEVELOPMENT
   ? "http://localhost:5173/api/dexcom/callback"
   : "https://hockey-sugar.fly.dev/api/dexcom/callback";
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const user = await requireParentUser(request);
+export async function loader({ request }: any) {
+  // We still require parent authentication to prevent unauthorized token creation
+  await requireParentUser(request);
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -41,12 +43,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    // Get the parent's athlete
-    const parentAthlete = await db.parentAthlete.findFirst({
-      where: { parentId: user.id },
-      select: { athleteId: true },
-    });
-
     // Exchange the authorization code for access and refresh tokens
     const response = await fetch(TOKEN_URL, {
       method: "POST",
@@ -73,23 +69,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     const data = await response.json();
 
-    // Store the tokens in the database
-    await db.dexcomToken.upsert({
-      where: {
-        userId: user.id,
-      },
-      update: {
+    // Store the token - now we just store it directly without user association
+    await db.dexcomToken.create({
+      data: {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         expiresAt: new Date(Date.now() + data.expires_in * 1000),
-        athleteId: parentAthlete?.athleteId || null,
-      },
-      create: {
-        userId: user.id,
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresAt: new Date(Date.now() + data.expires_in * 1000),
-        athleteId: parentAthlete?.athleteId || null,
       },
     });
 

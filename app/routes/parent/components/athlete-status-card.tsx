@@ -7,16 +7,28 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 import { PrismaStatusType } from "~/types/prisma";
-import type { Athlete } from "../types";
 
 interface AthleteStatusCardProps {
-  athlete: Athlete;
+  athlete: {
+    name: string;
+    glucose?: {
+      value: number;
+      unit: string;
+      recordedAt: string;
+    } | null;
+    status?: {
+      type: PrismaStatusType;
+      acknowledgedAt: string | null;
+    } | null;
+    glucoseHistory: Array<{
+      value: number;
+    }>;
+  };
   isDexcomConnected: boolean;
   setIsDexcomDialogOpen: (isOpen: boolean) => void;
   isRefreshing: boolean;
   refreshDexcomData: () => void;
   setIsStrobeDialogOpen: (isOpen: boolean) => void;
-  selectedAthleteId: string | null;
   isSubmitting: boolean;
   preferences: {
     lowThreshold: number;
@@ -32,7 +44,6 @@ export function AthleteStatusCard({
   isRefreshing,
   refreshDexcomData,
   setIsStrobeDialogOpen,
-  selectedAthleteId,
   isSubmitting,
   preferences,
   setIsPreferencesDialogOpen,
@@ -108,7 +119,7 @@ export function AthleteStatusCard({
             variant="destructive"
             size="sm"
             onClick={() => setIsStrobeDialogOpen(true)}
-            disabled={!selectedAthleteId || isSubmitting}
+            disabled={isSubmitting}
             className="w-full sm:w-1/3"
           >
             <svg
@@ -176,26 +187,26 @@ export function AthleteStatusCard({
           <div className="flex flex-col items-center justify-center p-6 rounded-lg bg-gray-50">
             <div
               className={`text-4xl font-bold mb-2 ${
-                athlete.glucose?.statusType === PrismaStatusType.HIGH
+                athlete.status?.type === PrismaStatusType.HIGH
                   ? "text-black"
-                  : athlete.glucose?.statusType === PrismaStatusType.LOW
+                  : athlete.status?.type === PrismaStatusType.LOW
                   ? "text-red-600"
                   : "text-green-600"
               }`}
             >
-              {athlete.glucose?.statusType || "OK"}
+              {athlete.status?.type || "OK"}
             </div>
-            {athlete.glucose?.statusType === PrismaStatusType.LOW && (
+            {athlete.status?.type === PrismaStatusType.LOW && (
               <div
                 className={`text-sm ${
-                  athlete.glucose.acknowledgedAt
+                  athlete.status.acknowledgedAt
                     ? "text-green-600"
                     : "text-red-600 font-medium"
                 }`}
               >
-                {athlete.glucose.acknowledgedAt
+                {athlete.status.acknowledgedAt
                   ? `Acknowledged at ${new Date(
-                      athlete.glucose.acknowledgedAt
+                      athlete.status.acknowledgedAt
                     ).toLocaleTimeString()}`
                   : "⚠️ Not acknowledged yet"}
               </div>

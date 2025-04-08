@@ -1,96 +1,100 @@
+// app/lib/dexcom.server.ts
 import { StatusType } from "@prisma/client";
 import { db } from "./db.server";
 
 // Dexcom API endpoints
-const DEXCOM_TOKEN_URL = "https://api.dexcom.com/v2/oauth2/token";
-const DEXCOM_EGVS_URL = "https://api.dexcom.com/v3/users/self/egvs";
-
-// For development, use sandbox endpoints
 const SANDBOX_TOKEN_URL = "https://sandbox-api.dexcom.com/v2/oauth2/token";
 const SANDBOX_EGVS_URL = "https://sandbox-api.dexcom.com/v3/users/self/egvs";
 
 // Use sandbox for development
 const USE_SANDBOX = true;
-
-const TOKEN_URL = USE_SANDBOX ? SANDBOX_TOKEN_URL : DEXCOM_TOKEN_URL;
-const EGVS_URL = USE_SANDBOX ? SANDBOX_EGVS_URL : DEXCOM_EGVS_URL;
+const TOKEN_URL = USE_SANDBOX
+  ? SANDBOX_TOKEN_URL
+  : "https://api.dexcom.com/v2/oauth2/token";
+const EGVS_URL = USE_SANDBOX
+  ? SANDBOX_EGVS_URL
+  : "https://api.dexcom.com/v3/users/self/egvs";
 
 // Replace with your actual client ID and secret
 const CLIENT_ID = "7hb0UP16z9PSQgr7VAXziGOFhtMOAwVC";
 const CLIENT_SECRET = "o5uesNyh9zY2gOGP";
 
-interface DexcomTokens {
+/**
+ * Get the current DexCom token
+ */
+export async function getDexcomToken() {
+  // Always get the latest token (we only store one now)
+  return db.dexcomToken.findFirst({
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}
+
+/**
+ * Refresh DexCom tokens
+ */
+export async function refreshDexcomToken(refreshToken: string) {
+  try {
+    const response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(
+        `Token refresh failed: ${
+          errorData.error_description || response.statusText
+        }`
+      );
+    }
+
+    const data = await response.json();
+
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: new Date(Date.now() + data.expires_in * 1000),
+    };
+  } catch (error) {
+    console.error("Error refreshing token:", error);
+    throw error;
+  }
+}
+
+/**
+ * Save or update DexCom token
+ */
+export async function saveDexcomToken(tokenData: {
   accessToken: string;
   refreshToken: string;
-  expiresAt: number;
-}
-
-/**
- * Get Dexcom tokens for an athlete
- */
-export async function getDexcomTokens(
-  athleteId: string
-): Promise<DexcomTokens | null> {
-  // In a real application, you would store these tokens in your database
-  // For this example, we'll retrieve them from localStorage on the client side
-  // and pass them to the server via a form submission
-
-  // This is a placeholder - in a real app, you would retrieve from your database
-  return null;
-}
-
-/**
- * Refresh Dexcom tokens
- */
-export async function refreshDexcomTokens(
-  refreshToken: string
-): Promise<DexcomTokens> {
-  const response = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
+  expiresAt: Date;
+}) {
+  // Create a new token every time (we'll only use the latest one)
+  return db.dexcomToken.create({
+    data: tokenData,
   });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(
-      `Token refresh failed: ${
-        errorData.error_description || response.statusText
-      }`
-    );
-  }
-
-  const data = await response.json();
-
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
 }
 
 /**
  * Get the latest glucose reading from Dexcom
  */
-export async function getLatestDexcomReading(accessToken: string): Promise<{
-  value: number;
-  unit: string;
-  recordedAt: Date;
-} | null> {
+export async function getLatestDexcomReading(accessToken: string) {
   try {
-    console.log("Getting latest Dexcom reading");
     // Calculate time range for the last 24 hours
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
 
-    // Format dates for Dexcom API in YYYY-MM-DDThh:mm:ss format
+    // Format dates for Dexcom API
     const formattedStartDate = startDate.toISOString().replace(/\.\d{3}Z$/, "");
     const formattedEndDate = endDate.toISOString().replace(/\.\d{3}Z$/, "");
 
@@ -105,7 +109,6 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
 
     if (!response.ok) {
       if (response.status === 401) {
-        // Token expired, need to refresh
         throw new Error("TOKEN_EXPIRED");
       }
 
@@ -120,7 +123,6 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
     const data = await response.json();
 
     if (!data.records || data.records.length === 0) {
-      console.log("No readings found in response");
       return null;
     }
 
@@ -130,7 +132,7 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
     return {
       value: latestReading.value,
       unit: latestReading.unit,
-      recordedAt: new Date(latestReading.displayTime),
+      recordedAt: new Date(latestReading.displayTime || new Date()),
     };
   } catch (error) {
     console.error("Error fetching Dexcom readings:", error);
@@ -139,47 +141,95 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
 }
 
 /**
- * Determine status based on glucose value
+ * Update glucose reading from Dexcom
+ * This now requires the parent user ID who is refreshing the data
  */
-export function getStatusFromGlucose(value: number): StatusType {
-  if (value < 100) return StatusType.LOW;
-  if (value >= 250) return StatusType.HIGH;
-  return StatusType.OK;
-}
-
-/**
- * Update athlete's glucose reading from Dexcom
- */
-export async function updateAthleteGlucoseFromDexcom(
-  athleteId: string,
-  accessToken: string
-): Promise<boolean> {
+export async function updateGlucoseFromDexcom(parentId: string) {
   try {
-    // Get the latest reading from Dexcom
-    const reading = await getLatestDexcomReading(accessToken);
+    // Get the latest Dexcom token
+    const dexcomToken = await getDexcomToken();
 
-    if (!reading) {
-      return false;
+    if (!dexcomToken) {
+      return { success: false, error: "No Dexcom token found" };
     }
 
-    // Determine the status based on the glucose value
-    const statusType = getStatusFromGlucose(reading.value);
+    // Check if token is expired
+    if (new Date(dexcomToken.expiresAt) < new Date()) {
+      try {
+        // Try to refresh the token
+        const newToken = await refreshDexcomToken(dexcomToken.refreshToken);
+        await saveDexcomToken(newToken);
 
-    // Create new glucose reading with status directly
-    const glucoseReading = await db.glucoseReading.create({
-      data: {
+        // Continue with the new token
+        dexcomToken.accessToken = newToken.accessToken;
+      } catch (error) {
+        return {
+          success: false,
+          error: "Token expired and refresh failed",
+          needsReauth: true,
+        };
+      }
+    }
+
+    // Get the latest reading from Dexcom
+    const reading = await getLatestDexcomReading(dexcomToken.accessToken);
+
+    if (!reading) {
+      return { success: false, error: "No readings available" };
+    }
+
+    // Get parent preferences for thresholds
+    const preferences = await db.userPreferences.findUnique({
+      where: { userId: parentId },
+    });
+
+    const lowThreshold = preferences?.lowThreshold || 70;
+    const highThreshold = preferences?.highThreshold || 180;
+
+    // Determine status based on glucose value
+    let statusType = StatusType.OK as StatusType;
+    if (reading.value < lowThreshold) {
+      statusType = StatusType.LOW;
+    } else if (reading.value > highThreshold) {
+      statusType = StatusType.HIGH;
+    }
+
+    // Check if we already have this reading (to avoid duplicates)
+    const existingReading = await db.glucoseReading.findFirst({
+      where: {
         value: reading.value,
-        unit: reading.unit,
-        userId: athleteId,
-        recordedById: athleteId,
-        statusType,
+        recordedAt: {
+          gte: new Date(new Date().getTime() - 5 * 60 * 1000), // Within last 5 minutes
+        },
         source: "dexcom",
       },
     });
 
-    return true;
-  } catch (error) {
-    console.error("Error updating athlete glucose from Dexcom:", error);
-    return false;
+    if (existingReading) {
+      return { success: false, noNewData: true };
+    }
+
+    // Create new status
+    const status = await db.status.create({
+      data: {
+        type: statusType,
+      },
+    });
+
+    // Create new glucose reading
+    const glucoseReading = await db.glucoseReading.create({
+      data: {
+        value: reading.value,
+        unit: reading.unit,
+        recordedById: parentId,
+        statusId: status.id,
+        source: "dexcom",
+      },
+    });
+
+    return { success: true, status, glucoseReading };
+  } catch (error: any) {
+    console.error("Error updating glucose from Dexcom:", error);
+    return { success: false, error: error.message };
   }
 }

@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import type { StatusType } from "@prisma/client";
 import {
   CartesianGrid,
   Line,
@@ -8,15 +8,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { PrismaStatusType } from "~/types/prisma";
 
 interface GlucoseReading {
   id: string;
   value: number;
   unit: string;
   recordedAt: string;
-  statusType: PrismaStatusType;
-  acknowledgedAt: string | null;
+  status?: {
+    type: StatusType;
+    acknowledgedAt: string | null;
+  } | null;
 }
 
 interface GlucoseChartProps {
@@ -45,8 +46,8 @@ export function GlucoseChart({
       time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       fullTime: date.toLocaleString(),
       value: reading.value,
-      status: reading.statusType,
-      acknowledged: reading.acknowledgedAt !== null,
+      status: reading.status?.type || "OK",
+      acknowledged: reading.status?.acknowledgedAt !== null,
     };
   });
 
@@ -85,37 +86,53 @@ export function GlucoseChart({
         </>
       ) : (
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={readings}>
+          <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis
-              dataKey="recordedAt"
-              tickFormatter={(value) =>
-                format(new Date(value), "MMM d, h:mm a")
-              }
+            <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 12 }} />
+            <YAxis
+              domain={[
+                Math.max(0, minValue - 10),
+                Math.min(400, maxValue + 10),
+              ]}
               stroke="#6b7280"
               tick={{ fontSize: 12 }}
             />
-            <YAxis domain={[0, 400]} stroke="#6b7280" tick={{ fontSize: 12 }} />
+            {/* Add threshold lines */}
+            <CartesianGrid strokeDasharray="3 3" />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              dot={{ fill: "#3b82f6", strokeWidth: 2 }}
+            />
             <Tooltip
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
                   const data = payload[0].payload;
                   return (
                     <div className="bg-white p-2 rounded-lg shadow-lg border border-gray-200">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-1">
                         <span className="font-medium text-gray-900">
-                          {data.value} {data.unit}
+                          {data.value} mg/dL
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {data.fullTime}
                         </span>
                         <span
                           className={`text-xs px-1.5 py-0.5 rounded ${
-                            data.statusType === "HIGH"
+                            data.status === "HIGH"
                               ? "bg-orange-100 text-orange-700"
-                              : data.statusType === "LOW"
+                              : data.status === "LOW"
                               ? "bg-red-100 text-red-700"
                               : "bg-green-100 text-green-700"
                           }`}
                         >
-                          {data.statusType}
+                          {data.status}
+                          {data.status === "LOW" &&
+                            (data.acknowledged
+                              ? " (Acknowledged)"
+                              : " (Not Acknowledged)")}
                         </span>
                       </div>
                     </div>
@@ -123,13 +140,6 @@ export function GlucoseChart({
                 }
                 return null;
               }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={{ fill: "#3b82f6", strokeWidth: 2 }}
             />
           </LineChart>
         </ResponsiveContainer>

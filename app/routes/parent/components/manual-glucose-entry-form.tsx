@@ -18,14 +18,12 @@ import {
 interface ManualGlucoseEntryFormProps {
   handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   athleteName: string;
-  selectedAthleteId: string | null;
   isSubmitting: boolean;
 }
 
 export function ManualGlucoseEntryForm({
   handleSubmit,
   athleteName,
-  selectedAthleteId,
   isSubmitting,
 }: ManualGlucoseEntryFormProps) {
   return (
@@ -39,11 +37,6 @@ export function ManualGlucoseEntryForm({
       <CardContent>
         <form method="post" onSubmit={handleSubmit} className="space-y-4">
           <input type="hidden" name="intent" value="update-glucose" />
-          <input
-            type="hidden"
-            name="athleteId"
-            value={selectedAthleteId ?? ""}
-          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Glucose Value Input */}

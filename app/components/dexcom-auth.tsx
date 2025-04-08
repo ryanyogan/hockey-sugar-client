@@ -45,17 +45,15 @@ export function DexcomAuth({ onAuthSuccess }: DexcomAuthProps) {
         localStorage.setItem("dexcom_auth_state", state);
       }
 
-      // Try using a different API version
-      // The error suggests that the /v2/oauth2/auth endpoint might not exist
-      // Let's try using the /v1/oauth2/auth endpoint instead
-      const alternativeAuthUrl = USE_SANDBOX
+      // The auth URL to use
+      const authUrl = USE_SANDBOX
         ? "https://sandbox-api.dexcom.com/v2/oauth2/login"
-        : "https://api.dexcom.com/v1/oauth2/auth";
+        : "https://api.dexcom.com/v2/oauth2/login";
 
-      console.log("Alternative Dexcom auth URL:", alternativeAuthUrl);
+      console.log("Dexcom auth URL:", authUrl);
 
       // Construct the authorization URL with the correct parameters
-      const authUrl = `${alternativeAuthUrl}?client_id=${encodeURIComponent(
+      const url = `${authUrl}?client_id=${encodeURIComponent(
         CLIENT_ID
       )}&redirect_uri=${encodeURIComponent(
         REDIRECT_URI
@@ -63,11 +61,8 @@ export function DexcomAuth({ onAuthSuccess }: DexcomAuthProps) {
         state
       )}`;
 
-      // Log the URL for debugging
-      console.log("Dexcom auth URL:", authUrl);
-
       // Redirect to Dexcom authorization page
-      window.location.href = authUrl;
+      window.location.href = url;
     } catch (err) {
       setIsLoading(false);
       setError("Failed to initiate Dexcom authentication");
