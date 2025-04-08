@@ -41,6 +41,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
+    // Get the parent's athlete
+    const parentAthlete = await db.parentAthlete.findFirst({
+      where: { parentId: user.id },
+      select: { athleteId: true },
+    });
+
     // Exchange the authorization code for access and refresh tokens
     const response = await fetch(TOKEN_URL, {
       method: "POST",
@@ -76,12 +82,14 @@ export async function loader({ request }: Route.LoaderArgs) {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         expiresAt: new Date(Date.now() + data.expires_in * 1000),
+        athleteId: parentAthlete?.athleteId || null,
       },
       create: {
         userId: user.id,
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         expiresAt: new Date(Date.now() + data.expires_in * 1000),
+        athleteId: parentAthlete?.athleteId || null,
       },
     });
 

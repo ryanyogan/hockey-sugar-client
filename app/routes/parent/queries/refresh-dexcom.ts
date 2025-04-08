@@ -33,28 +33,62 @@ export async function refreshDexcom({ user }: { user: Partial<User> }) {
     );
   }
 
-  // Get the athlete
-  const athlete = await db.user.findFirst({
-    where: {
-      role: "ATHLETE",
-      athleteParents: {
-        some: {
-          parentId: user.id,
+  // Get the athlete - first check if the token has an athleteId
+  let athlete;
+
+  if (dexcomToken.athleteId) {
+    athlete = await db.user.findUnique({
+      where: {
+        id: dexcomToken.athleteId,
+      },
+      include: {
+        glucoseReadings: {
+          orderBy: {
+            recordedAt: "desc",
+          },
+          take: 1,
+          where: {
+            source: "dexcom",
+          },
         },
       },
-    },
-    include: {
-      glucoseReadings: {
-        orderBy: {
-          recordedAt: "desc",
-        },
-        take: 1,
-        where: {
-          source: "dexcom",
+    });
+  }
+
+  // If no athleteId or athlete not found, try to find an athlete through the parent relationship
+  if (!athlete) {
+    athlete = await db.user.findFirst({
+      where: {
+        role: "ATHLETE",
+        athleteParents: {
+          some: {
+            parentId: user.id,
+          },
         },
       },
-    },
-  });
+      include: {
+        glucoseReadings: {
+          orderBy: {
+            recordedAt: "desc",
+          },
+          take: 1,
+          where: {
+            source: "dexcom",
+          },
+        },
+      },
+    });
+
+    // If we found an athlete through the parent relationship, update the token with the athleteId
+    if (athlete && !dexcomToken.athleteId) {
+      await db.dexcomToken.update({
+        where: { id: dexcomToken.id },
+        data: { athleteId: athlete.id },
+      });
+
+      console.log(`Updated Dexcom token with athlete ID: ${athlete.id}`);
+    }
+  }
 
   if (!athlete) {
     return data({ error: "Athlete not found" }, { status: 404 });
@@ -117,9 +151,9 @@ export async function refreshDexcom({ user }: { user: Partial<User> }) {
       const timeDiffMinutes =
         (currentTime.getTime() - lastReadingTime.getTime()) / (1000 * 60);
 
-      // If the value is the same and less than 5 minutes have passed, disregard
-      if (latestReading.value === lastReading.value && timeDiffMinutes < 5) {
-        console.log("Same value within 5 minutes, disregarding");
+      // If the value is the same, disregard
+      if (latestReading.value === lastReading.value) {
+        console.log("Same value, disregarding");
         return data({
           success: false,
           message: "Dexcom has not provided a new value yet",

@@ -3,11 +3,11 @@ import { db } from "./db.server";
 
 // Dexcom API endpoints
 const DEXCOM_TOKEN_URL = "https://api.dexcom.com/v2/oauth2/token";
-const DEXCOM_EGVS_URL = "https://api.dexcom.com/v2/users/self/egvs";
+const DEXCOM_EGVS_URL = "https://api.dexcom.com/v3/users/self/egvs";
 
 // For development, use sandbox endpoints
 const SANDBOX_TOKEN_URL = "https://sandbox-api.dexcom.com/v2/oauth2/token";
-const SANDBOX_EGVS_URL = "https://sandbox-api.dexcom.com/v2/users/self/egvs";
+const SANDBOX_EGVS_URL = "https://sandbox-api.dexcom.com/v3/users/self/egvs";
 
 // Use sandbox for development
 const USE_SANDBOX = true;
@@ -85,6 +85,7 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
   recordedAt: Date;
 } | null> {
   try {
+    console.log("Getting latest Dexcom reading");
     // Calculate time range for the last 24 hours
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
@@ -118,12 +119,13 @@ export async function getLatestDexcomReading(accessToken: string): Promise<{
 
     const data = await response.json();
 
-    if (!data.egvs || data.egvs.length === 0) {
+    if (!data.records || data.records.length === 0) {
+      console.log("No readings found in response");
       return null;
     }
 
     // Get the most recent reading
-    const latestReading = data.egvs[0];
+    const latestReading = data.records[0];
 
     return {
       value: latestReading.value,

@@ -8,6 +8,7 @@ import {
 } from "react-router";
 import { db } from "~/lib/db.server";
 import { requireParentUser } from "~/lib/session.server";
+import { addEventListener, initializeWebSocket } from "~/lib/websocket.client";
 import type { Route } from "./+types";
 import { getAthleteWithMetadata } from "./queries/get-athlete-with-metadata";
 import { getAthletes } from "./queries/get-athletes";
@@ -206,6 +207,72 @@ export default function ParentDashboard() {
   );
   const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
   const [noNewDataMessage, setNoNewDataMessage] = useState<string | null>(null);
+  const [localAthleteData, setLocalAthleteData] = useState<any>(null);
+
+  // Initialize WebSocket connection
+  useEffect(() => {
+    // Initialize WebSocket connection
+    initializeWebSocket();
+
+    // Set up event listeners for WebSocket messages
+    const removeGlucoseUpdateListener = addEventListener(
+      "glucose-update",
+      (data) => {
+        console.log("Received glucose update:", data);
+
+        // Update local athlete data if it matches the selected athlete
+        if (data.athleteId === selectedAthleteId && localAthleteData) {
+          const updatedAthlete = { ...localAthleteData };
+
+          // Update the latest glucose reading
+          updatedAthlete.glucose = data.reading;
+
+          // Update the status
+          updatedAthlete.status = {
+            type: data.reading.statusType,
+            acknowledgedAt: data.reading.acknowledgedAt,
+            createdAt: data.reading.createdAt,
+            updatedAt: data.reading.updatedAt,
+          };
+
+          // Add the new reading to the history
+          updatedAthlete.glucoseHistory = [
+            data.reading,
+            ...(localAthleteData.glucoseHistory || []),
+          ].slice(0, 20); // Keep only the latest 20 readings
+
+          setLocalAthleteData(updatedAthlete);
+        }
+      }
+    );
+
+    const removeAuthErrorListener = addEventListener(
+      "dexcom-auth-error",
+      (data) => {
+        console.log("Received Dexcom auth error:", data);
+
+        // Show the Dexcom dialog if the error is for the selected athlete
+        if (data.athleteId === selectedAthleteId) {
+          setDexcomError(data.message);
+          setIsDexcomConnected(false);
+          setIsDexcomDialogOpen(true);
+        }
+      }
+    );
+
+    // Clean up event listeners when component unmounts
+    return () => {
+      removeGlucoseUpdateListener();
+      removeAuthErrorListener();
+    };
+  }, [selectedAthleteId]);
+
+  // Initialize local athlete data when selectedAthlete changes
+  useEffect(() => {
+    if (selectedAthlete) {
+      setLocalAthleteData(selectedAthlete);
+    }
+  }, [selectedAthlete]);
 
   // Show the remove athlete dialog if there are multiple athletes
   useEffect(() => {
@@ -407,10 +474,10 @@ export default function ParentDashboard() {
         </div>
       )}
 
-      {selectedAthlete ? (
+      {localAthleteData ? (
         <div className="space-y-6">
           <AthleteStatusCard
-            athlete={selectedAthlete}
+            athlete={localAthleteData}
             isDexcomConnected={isDexcomConnected}
             setIsDexcomDialogOpen={setIsDexcomDialogOpen}
             isRefreshing={isRefreshing}
@@ -424,12 +491,12 @@ export default function ParentDashboard() {
 
           <ManualGlucoseEntryForm
             handleSubmit={handleGlucoseSubmit}
-            athleteName={selectedAthlete.name}
+            athleteName={localAthleteData.name}
             selectedAthleteId={selectedAthleteId}
             isSubmitting={isSubmitting}
           />
 
-          <GlucoseDataDisplay athlete={selectedAthlete} />
+          <GlucoseDataDisplay athlete={localAthleteData} />
         </div>
       ) : (
         <NoAthletesDisplay />

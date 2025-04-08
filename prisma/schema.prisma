@@ -26,6 +26,7 @@ model User {
   glucoseReadings  GlucoseReading[]
   recordedReadings GlucoseReading[] @relation("RecordedReadings")
   dexcomToken      DexcomToken?
+  dexcomTokens     DexcomToken[]    @relation("AthleteDexcomToken")
   preferences      UserPreferences?
 
   @@index([email])
@@ -97,6 +98,8 @@ model DexcomToken {
   id           String   @id @default(cuid())
   userId       String   @unique
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  athleteId    String?
+  athlete      User?    @relation("AthleteDexcomToken", fields: [athleteId], references: [id], onDelete: SetNull)
   accessToken  String
   refreshToken String
   expiresAt    DateTime
@@ -104,6 +107,7 @@ model DexcomToken {
   updatedAt    DateTime @updatedAt
 
   @@index([userId])
+  @@index([athleteId])
 }
 
 model UserPreferences {
