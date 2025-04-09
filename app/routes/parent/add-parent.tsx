@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
 import { data, Form, Link, useActionData, useNavigation } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
@@ -116,6 +116,30 @@ export async function action({ request }: RouteArgs) {
 
     const newUser = await db.user.create({
       data: userData,
+    });
+
+    // Get the athlete
+    const athlete = await db.user.findFirst({
+      where: { isAthlete: true },
+    });
+
+    if (!athlete) {
+      console.error("No athlete found");
+      const errorResponse: ActionData = {
+        errors: {
+          form: "No athlete found. Please add an athlete first.",
+        },
+        values,
+      };
+      return data(errorResponse, { status: 500 });
+    }
+
+    // Create the athlete-parent relationship
+    await db.athleteParent.create({
+      data: {
+        athleteId: athlete.id,
+        parentId: newUser.id,
+      },
     });
 
     const successResponse: ActionData = {
@@ -285,6 +309,18 @@ export default function AddParentPage() {
           </Form>
         </CardContent>
       </Card>
+
+      {/* Success Message */}
+      {actionData?.success && (
+        <Card className="mt-6 shadow-sm border-green-200">
+          <CardContent className="p-6">
+            <div className="flex items-center text-green-700">
+              <CheckCircle className="h-5 w-5 mr-2" />
+              <span>{actionData.success}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

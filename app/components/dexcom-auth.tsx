@@ -50,8 +50,6 @@ export function DexcomAuth({ onAuthSuccess }: DexcomAuthProps) {
         ? "https://sandbox-api.dexcom.com/v2/oauth2/login"
         : "https://api.dexcom.com/v2/oauth2/login";
 
-      console.log("Dexcom auth URL:", authUrl);
-
       // Construct the authorization URL with the correct parameters
       const url = `${authUrl}?client_id=${encodeURIComponent(
         CLIENT_ID

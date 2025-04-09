@@ -288,11 +288,9 @@ export default function ParentDashboard() {
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      console.log("Received Dexcom data update", data);
 
       // If we receive a Dexcom data update, refresh the page data
       if (data.glucoseReading) {
-        console.log("Received Dexcom data update, refreshing page data");
         validator.revalidate();
       }
     };

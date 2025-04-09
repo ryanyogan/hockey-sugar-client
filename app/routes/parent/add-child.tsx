@@ -60,7 +60,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   try {
     const user = await requireParentUser(request);
-    console.log("Adding child for parent:", user.id, user.name);
 
     const formData = await request.formData();
 
