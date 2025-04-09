@@ -1,8 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { AlertCircle, ArrowLeft } from "lucide-react";
-import { data, Form, useActionData, useNavigation } from "react-router";
-import { Link } from "react-router-dom";
+import { data, Form, Link, useActionData, useNavigation } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
   Card,

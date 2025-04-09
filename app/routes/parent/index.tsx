@@ -82,7 +82,6 @@ export async function action({ request }: any) {
     case "stop-dexcom-job": {
       try {
         jobRunner.stopJob("dexcom-sync");
-
         return data({ success: true });
       } catch (error) {
         console.error("Failed to stop job:", error);
