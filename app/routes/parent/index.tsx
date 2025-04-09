@@ -1,7 +1,14 @@
-import { AlertCircle, Clock, Zap } from "lucide-react";
+import { AlertCircle, Clock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { data, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import { getFormattedAthleteData } from "~/lib/athlete.server";
 import { db } from "~/lib/db.server";
 import { getDexcomToken, updateGlucoseFromDexcom } from "~/lib/dexcom.server";
@@ -453,37 +460,7 @@ export default function ParentDashboard() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
-            {/* Dexcom Connection Status */}
-            {isDexcomConnected ? (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span>Dexcom Connected</span>
-              </div>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsDexcomDialogOpen(true)}
-                className="flex items-center bg-white text-blue-600 hover:bg-blue-50"
-              >
-                <Zap className="h-4 w-4 mr-1.5" />
-                Connect Dexcom
-              </Button>
-            )}
-
-            {/* SOS Button */}
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setIsStrobeDialogOpen(true)}
-              disabled={isSubmitting}
-              className="flex items-center"
-            >
-              <AlertCircle className="h-4 w-4 mr-1.5" />
-              Send SOS
-            </Button>
-          </div>
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end"></div>
         </div>
       </div>
 
@@ -534,6 +511,41 @@ export default function ParentDashboard() {
           />
 
           <GlucoseDataDisplay athlete={athlete} />
+
+          {/* Emergency Actions Card */}
+          <Card className="shadow-sm">
+            <CardHeader className="border-b bg-red-50/50 -mt-6 pt-6">
+              <CardTitle className="text-red-700">Emergency Actions</CardTitle>
+              <CardDescription>
+                Use these buttons to send urgent alerts to the athlete
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="flex flex-wrap gap-4">
+                <Button
+                  variant="destructive"
+                  onClick={() => setIsStrobeDialogOpen(true)}
+                  disabled={isSubmitting}
+                  className="flex items-center"
+                >
+                  <AlertCircle className="h-4 w-4 mr-1.5" />
+                  Send Strobe Alert
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    // TODO: Implement audible alert functionality
+                    setIsStrobeDialogOpen(true);
+                  }}
+                  disabled={isSubmitting}
+                  className="flex items-center"
+                >
+                  <AlertCircle className="h-4 w-4 mr-1.5" />
+                  Send Strobe & Audible Alert
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow p-8 text-center">
