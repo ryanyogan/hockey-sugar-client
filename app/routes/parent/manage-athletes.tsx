@@ -1,6 +1,6 @@
 import type { GlucoseReading, Prisma, User } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
   data,
@@ -205,22 +205,35 @@ export default function ManageAthletesPage() {
   if (!athlete) {
     return (
       <div className="container mx-auto py-8">
-        <div className="mb-8 flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-3xl font-bold">Manage Athlete</h1>
+        {/* Page Header - No Card */}
+        <div className="mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Manage Athlete</h1>
+              <p className="text-gray-600">Add an athlete to your account</p>
+            </div>
+            <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => navigate(-1)}
+                className="flex items-center"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1.5" />
+                Back
+              </Button>
+            </div>
+          </div>
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className="shadow-sm">
+          <CardHeader className="border-b bg-gray-50/50">
             <CardTitle>No Athlete Found</CardTitle>
             <CardDescription>
               An account must have one athlete. Please add an athlete to
               continue.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-6">
             <Button asChild className="mt-4">
               <Link to="/parent/add-athlete">Add Athlete</Link>
             </Button>
@@ -232,32 +245,51 @@ export default function ManageAthletesPage() {
 
   return (
     <div className="container mx-auto py-8">
-      <div className="mb-8 flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="text-3xl font-bold">Manage Athlete</h1>
+      {/* Page Header - No Card */}
+      <div className="mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Manage Athlete</h1>
+            <p className="text-gray-600">Update your athlete's information</p>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => navigate(-1)}
+              className="flex items-center"
+            >
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Back
+            </Button>
+          </div>
+        </div>
       </div>
 
       {actionData?.error && (
-        <div className="mb-4 rounded-md bg-red-50 p-4 text-red-700">
-          {actionData.error}
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+            <span>{actionData.error}</span>
+          </div>
         </div>
       )}
 
       {actionData?.success && (
-        <div className="mb-4 rounded-md bg-green-50 p-4 text-green-700">
-          {actionData.success}
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
+          <div className="flex items-center">
+            <CheckCircle className="h-5 w-5 mr-2 text-green-500" />
+            <span>{actionData.success}</span>
+          </div>
         </div>
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
+        <Card className="shadow-sm">
+          <CardHeader className="border-b bg-gray-50/50">
             <CardTitle>Athlete Information</CardTitle>
             <CardDescription>Manage your athlete's details</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-6">
             {isEditing ? (
               <Form method="post" className="space-y-4">
                 <input type="hidden" name="intent" value="update" />
@@ -269,6 +301,7 @@ export default function ManageAthletesPage() {
                     name="name"
                     defaultValue={athlete.name}
                     required
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -279,6 +312,7 @@ export default function ManageAthletesPage() {
                     type="email"
                     defaultValue={athlete.email}
                     required
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -288,6 +322,7 @@ export default function ManageAthletesPage() {
                     name="password"
                     type="password"
                     minLength={8}
+                    className="mt-1"
                   />
                 </div>
                 <div className="flex justify-end gap-2">
@@ -304,45 +339,48 @@ export default function ManageAthletesPage() {
             ) : (
               <div className="space-y-4">
                 <div>
-                  <Label>Name</Label>
-                  <p className="text-lg">{athlete.name}</p>
+                  <Label className="text-sm text-gray-500">Name</Label>
+                  <p className="text-lg font-medium">{athlete.name}</p>
                 </div>
                 <div>
-                  <Label>Email</Label>
-                  <p className="text-lg">{athlete.email}</p>
+                  <Label className="text-sm text-gray-500">Email</Label>
+                  <p className="text-lg font-medium">{athlete.email}</p>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setIsEditing(true)}>
-                    Edit
+                    Edit Information
                   </Button>
-                  {isParent && (
-                    <Button
-                      variant="destructive"
-                      onClick={() => setIsDeleting(true)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Remove
-                    </Button>
-                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={() => setIsDeleting(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Delete Athlete
+                  </Button>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="shadow-sm">
+          <CardHeader className="border-b bg-gray-50/50">
             <CardTitle>Glucose History</CardTitle>
             <CardDescription>Recent glucose readings</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <GlucoseChart
-                readings={athlete.recordedReadings}
-                highThreshold={180}
-                lowThreshold={70}
-              />
-            </div>
+          <CardContent className="p-6">
+            {athlete.recordedReadings.length > 0 ? (
+              <div className="h-[300px]">
+                <GlucoseChart readings={athlete.recordedReadings} />
+              </div>
+            ) : (
+              <div className="text-center text-gray-500 py-8">
+                <p className="text-lg font-medium">No glucose readings yet</p>
+                <p className="text-sm mt-1">
+                  Readings will appear here once recorded
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -350,20 +388,25 @@ export default function ManageAthletesPage() {
       <AlertDialog open={isDeleting} onOpenChange={setIsDeleting}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Athlete</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove {athlete.name}? This will remove
-              your access to their data but won't delete their account.
+              This will permanently delete the athlete account for{" "}
+              <span className="font-medium">{athlete.name}</span>. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <Form method="post">
-            <input type="hidden" name="intent" value="remove" />
-            <input type="hidden" name="athleteId" value={athlete.id} />
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction type="submit">Remove</AlertDialogAction>
-            </AlertDialogFooter>
-          </Form>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Form method="post">
+              <input type="hidden" name="intent" value="delete" />
+              <input type="hidden" name="athleteId" value={athlete.id} />
+              <AlertDialogAction asChild>
+                <Button type="submit" variant="destructive">
+                  Delete Athlete
+                </Button>
+              </AlertDialogAction>
+            </Form>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

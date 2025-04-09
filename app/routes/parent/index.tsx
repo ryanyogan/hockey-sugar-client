@@ -1,13 +1,13 @@
-import { schedules } from "@trigger.dev/sdk/v3";
+import { AlertCircle, Clock, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
-import { data, useFetcher, useLoaderData } from "react-router";
+import { data, useFetcher, useLoaderData, useRevalidator } from "react-router";
+import { Button } from "~/components/ui/button";
 import { getFormattedAthleteData } from "~/lib/athlete.server";
 import { db } from "~/lib/db.server";
 import { getDexcomToken, updateGlucoseFromDexcom } from "~/lib/dexcom.server";
+import { jobRunner } from "~/lib/job-runner.server";
 import { requireParentUser } from "~/lib/session.server";
 import { StatusType } from "~/types/status";
-import { AthleteStatusCard } from "./components/athlete-status-card";
-import { DexcomStatus } from "./components/dexcom-status";
 import {
   DexcomDialog,
   PreferencesDialog,
@@ -15,6 +15,7 @@ import {
 } from "./components/dialogs";
 import { GlucoseDataDisplay } from "./components/glucose-display";
 import { ManualGlucoseEntryForm } from "./components/manual-glucose-entry-form";
+import { UnifiedStatusCard } from "./components/unified-status-card";
 
 /**
  * Main data loader for the parent dashboard
@@ -48,15 +49,8 @@ export async function loader({ request }: any) {
   });
 
   // Get the job status from trigger.dev
-  let isJobRunning = false;
-
-  try {
-    const job = await schedules.list();
-    isJobRunning =
-      job.data.find((job) => job.task === "dexcom-polling")?.active ?? false;
-  } catch (error) {
-    console.error("Failed to get job status:", error);
-  }
+  const jobStatus = jobRunner.getStatus();
+  const isJobRunning = !!jobStatus["dexcom-sync"]?.isScheduled;
 
   return data({
     user,
@@ -76,12 +70,7 @@ export async function action({ request }: any) {
   switch (intent) {
     case "start-dexcom-job": {
       try {
-        const jobs = await schedules.list();
-        const job = jobs.data.find((job) => job.task === "dexcom-polling");
-
-        if (job) {
-          await schedules.activate(job.id);
-        }
+        jobRunner.startJob("dexcom-sync");
 
         return data({ success: true });
       } catch (error) {
@@ -92,12 +81,7 @@ export async function action({ request }: any) {
 
     case "stop-dexcom-job": {
       try {
-        const jobs = await schedules.list();
-        const job = jobs.data.find((job) => job.task === "dexcom-polling");
-
-        if (job) {
-          await schedules.deactivate(job.id);
-        }
+        jobRunner.stopJob("dexcom-sync");
 
         return data({ success: true });
       } catch (error) {
@@ -254,6 +238,17 @@ export async function action({ request }: any) {
       return data({ success: true });
     }
 
+    case "disconnect-dexcom": {
+      try {
+        // Delete all Dexcom tokens
+        await db.dexcomToken.deleteMany({});
+        return data({ success: true });
+      } catch (error) {
+        console.error("Failed to disconnect Dexcom:", error);
+        return data({ error: "Failed to disconnect Dexcom" }, { status: 500 });
+      }
+    }
+
     default: {
       return data({ error: "Invalid intent" }, { status: 400 });
     }
@@ -269,6 +264,7 @@ export default function ParentDashboard() {
     lastReadingTime,
     isJobRunning,
   } = useLoaderData<typeof loader>();
+  const validator = useRevalidator();
   const fetcher = useFetcher();
 
   // State hooks
@@ -284,6 +280,34 @@ export default function ParentDashboard() {
     preferences?.highThreshold || 180
   );
   const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
+
+  // Set up SSE connection to listen for Dexcom data updates
+  useEffect(() => {
+    if (!athlete) return;
+
+    const eventSource = new EventSource("/api/dexcom/events");
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("Received Dexcom data update", data);
+
+      // If we receive a Dexcom data update, refresh the page data
+      if (data.glucoseReading) {
+        console.log("Received Dexcom data update, refreshing page data");
+        validator.revalidate();
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("EventSource error:", error);
+      eventSource.close();
+    };
+
+    // Clean up the EventSource when the component unmounts
+    return () => {
+      eventSource.close();
+    };
+  }, [athlete, validator]);
 
   // Check URL parameters for Dexcom callback results
   useEffect(() => {
@@ -403,80 +427,129 @@ export default function ParentDashboard() {
 
   return (
     <div className="container mx-auto py-8">
+      {/* Page Header - No Card */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">Parent Dashboard</h1>
-        <p className="text-gray-600">
-          Monitor and manage your athlete's glucose data
-        </p>
-      </div>
-
-      <div className="container mx-auto py-8">
-        {/* Dialogs */}
-        <PreferencesDialog
-          isOpen={isPreferencesDialogOpen}
-          setIsOpen={setIsPreferencesDialogOpen}
-          lowThreshold={lowThreshold}
-          setLowThreshold={setLowThreshold}
-          highThreshold={highThreshold}
-          setHighThreshold={setHighThreshold}
-          updatePreferences={updatePrefs}
-        />
-
-        <StrobeDialog
-          isOpen={isStrobeDialogOpen}
-          setIsOpen={setIsStrobeDialogOpen}
-          athleteName={athlete?.name}
-          handleSendStrobe={handleSendStrobe}
-        />
-
-        <DexcomDialog
-          isOpen={isDexcomDialogOpen}
-          setIsOpen={setIsDexcomDialogOpen}
-          onAuthSuccess={handleDexcomAuthSuccess}
-        />
-
-        {athlete ? (
-          <div className="space-y-6">
-            <DexcomStatus
-              isConnected={isDexcomConnected}
-              lastReadingTime={lastReadingTime}
-              isJobRunning={isJobRunning}
-              onRefresh={refreshDexcomData}
-            />
-
-            <AthleteStatusCard
-              athlete={athlete}
-              isDexcomConnected={isDexcomConnected}
-              setIsDexcomDialogOpen={setIsDexcomDialogOpen}
-              isRefreshing={isRefreshing}
-              refreshDexcomData={refreshDexcomData}
-              setIsStrobeDialogOpen={setIsStrobeDialogOpen}
-              isSubmitting={isSubmitting}
-              preferences={preferences}
-              setIsPreferencesDialogOpen={setIsPreferencesDialogOpen}
-            />
-
-            <ManualGlucoseEntryForm
-              handleSubmit={handleGlucoseSubmit}
-              athleteName={athlete.name}
-              isSubmitting={isSubmitting}
-            />
-
-            <GlucoseDataDisplay athlete={athlete} />
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <h2 className="text-xl font-bold mb-4">No Athlete Found</h2>
-            <p className="mb-4">
-              It looks like your son's account has not been set up yet.
-            </p>
-            <p>
-              Contact the system administrator to set up your son's account as
-              an athlete.
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-2 flex items-center">
+              <span className="mr-2">{athlete?.name || "Athlete"}</span>
+              {athlete?.status && (
+                <span
+                  className={`px-2 py-1 rounded-full text-xs ${
+                    athlete.status.type === "HIGH"
+                      ? "bg-black text-white"
+                      : athlete.status.type === "LOW"
+                      ? "bg-red-600 text-white"
+                      : "bg-green-600 text-white"
+                  }`}
+                >
+                  {athlete.status.type}
+                </span>
+              )}
+            </h1>
+            <p className="text-gray-600 flex items-center">
+              <Clock className="h-3 w-3 mr-1" />
+              Last updated:{" "}
+              {athlete?.glucose
+                ? new Date(athlete.glucose.recordedAt).toLocaleTimeString()
+                : "No recent readings"}
             </p>
           </div>
-        )}
+
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            {/* Dexcom Connection Status */}
+            {isDexcomConnected ? (
+              <div className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                <span>Dexcom Connected</span>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDexcomDialogOpen(true)}
+                className="flex items-center bg-white text-blue-600 hover:bg-blue-50"
+              >
+                <Zap className="h-4 w-4 mr-1.5" />
+                Connect Dexcom
+              </Button>
+            )}
+
+            {/* SOS Button */}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsStrobeDialogOpen(true)}
+              disabled={isSubmitting}
+              className="flex items-center"
+            >
+              <AlertCircle className="h-4 w-4 mr-1.5" />
+              Send SOS
+            </Button>
+          </div>
+        </div>
       </div>
+
+      {/* Dialogs */}
+      <PreferencesDialog
+        isOpen={isPreferencesDialogOpen}
+        setIsOpen={setIsPreferencesDialogOpen}
+        lowThreshold={lowThreshold}
+        setLowThreshold={setLowThreshold}
+        highThreshold={highThreshold}
+        setHighThreshold={setHighThreshold}
+        updatePreferences={updatePrefs}
+      />
+
+      <StrobeDialog
+        isOpen={isStrobeDialogOpen}
+        setIsOpen={setIsStrobeDialogOpen}
+        athleteName={athlete?.name}
+        handleSendStrobe={handleSendStrobe}
+      />
+
+      <DexcomDialog
+        isOpen={isDexcomDialogOpen}
+        setIsOpen={setIsDexcomDialogOpen}
+        onAuthSuccess={handleDexcomAuthSuccess}
+      />
+
+      {athlete ? (
+        <div className="space-y-6">
+          <UnifiedStatusCard
+            athlete={athlete}
+            isDexcomConnected={isDexcomConnected}
+            setIsDexcomDialogOpen={setIsDexcomDialogOpen}
+            isRefreshing={isRefreshing}
+            refreshDexcomData={refreshDexcomData}
+            setIsStrobeDialogOpen={setIsStrobeDialogOpen}
+            isSubmitting={isSubmitting}
+            preferences={preferences}
+            setIsPreferencesDialogOpen={setIsPreferencesDialogOpen}
+            lastReadingTime={lastReadingTime}
+            isJobRunning={isJobRunning}
+          />
+
+          <ManualGlucoseEntryForm
+            handleSubmit={handleGlucoseSubmit}
+            athleteName={athlete.name}
+            isSubmitting={isSubmitting}
+          />
+
+          <GlucoseDataDisplay athlete={athlete} />
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <h2 className="text-xl font-bold mb-4">No Athlete Found</h2>
+          <p className="mb-4">
+            It looks like your son's account has not been set up yet.
+          </p>
+          <p>
+            Contact the system administrator to set up your son's account as an
+            athlete.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

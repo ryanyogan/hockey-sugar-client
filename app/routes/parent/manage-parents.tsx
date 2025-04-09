@@ -14,6 +14,13 @@ import {
 } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
+import {
   Table,
   TableBody,
   TableCell,
@@ -128,23 +135,27 @@ export default function ManageParentsPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+    <div className="container mx-auto py-8">
+      {/* Page Header - No Card */}
+      <div className="mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Manage Parents</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <h1 className="text-3xl font-bold mb-2">Manage Parents</h1>
+            <p className="text-gray-600">
               View and manage parents associated with your athletes
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/parent")}>
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/parent")}
+              className="flex items-center"
+            >
               <ArrowLeft className="h-4 w-4 mr-1.5" />
               Back to Dashboard
             </Button>
             <Link to="/parent/add-parent">
-              <Button>
+              <Button className="flex items-center">
                 <UserPlus className="h-4 w-4 mr-1.5" />
                 Add New Parent
               </Button>
@@ -154,93 +165,93 @@ export default function ManageParentsPage() {
       </div>
 
       {/* Main content */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
-          <div className="flex items-center">
-            <AlertCircle className="h-5 w-5 mr-2 text-blue-500" />
-            <span>
-              Note: Parents may also be coaches. This is only reflected in the
-              UI display.
-            </span>
-          </div>
-        </div>
-
-        {actionData?.error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+      <Card className="shadow-sm">
+        <CardHeader className="border-b bg-gray-50/50">
+          <CardTitle>Parent/Coach List</CardTitle>
+          <CardDescription>
+            Manage parents and coaches associated with your athlete
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-md">
             <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
-              <span>{actionData.error}</span>
+              <AlertCircle className="h-5 w-5 mr-2 text-blue-500" />
+              <span>
+                Note: Parents may also be coaches. This is only reflected in the
+                UI display.
+              </span>
             </div>
           </div>
-        )}
 
-        {actionData?.success && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
-            <div className="flex items-center">
-              <CheckCircle className="h-5 w-5 mr-2 text-green-500" />
-              <span>{actionData.success}</span>
+          {actionData?.error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+                <span>{actionData.error}</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                {currentUser.isAdmin && <TableHead>Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {parents.map((parent) => (
-                <TableRow key={parent.id}>
-                  <TableCell className="font-medium">{parent.name}</TableCell>
-                  <TableCell>{parent.email}</TableCell>
-                  <TableCell>
-                    {parent.role}
-                    {parent.isAdmin && (
-                      <span className="ml-1 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">
-                        Admin
-                      </span>
-                    )}
-                  </TableCell>
-                  {currentUser.isAdmin && parent.id !== currentUser.id && (
-                    <TableCell>
-                      <Form method="post">
-                        <input
-                          type="hidden"
-                          name="parentId"
-                          value={parent.id}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          type="submit"
-                          className="text-red-600 hover:text-red-900 hover:bg-red-50"
-                          onClick={(e) => {
-                            if (
-                              !confirm(
-                                "Are you sure you want to remove this parent?"
-                              )
-                            ) {
-                              e.preventDefault();
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          Remove
-                        </Button>
-                      </Form>
-                    </TableCell>
-                  )}
+          {actionData?.success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
+              <div className="flex items-center">
+                <CheckCircle className="h-5 w-5 mr-2 text-green-500" />
+                <span>{actionData.success}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  {currentUser.isAdmin && <TableHead>Actions</TableHead>}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+              </TableHeader>
+              <TableBody>
+                {parents.map((parent) => (
+                  <TableRow key={parent.id}>
+                    <TableCell className="font-medium">{parent.name}</TableCell>
+                    <TableCell>{parent.email}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center">
+                        <span>{parent.role}</span>
+                        {parent.isAdmin && (
+                          <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">
+                            Admin
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    {currentUser.isAdmin && parent.id !== currentUser.id && (
+                      <TableCell>
+                        <Form method="post">
+                          <input
+                            type="hidden"
+                            name="parentId"
+                            value={parent.id}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            type="submit"
+                            className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </Form>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

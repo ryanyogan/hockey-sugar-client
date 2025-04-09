@@ -10,7 +10,6 @@ import {
 // Define the job
 export const dexcomPollingJob = schedules.task({
   id: "dexcom-polling",
-  cron: "* * * * *",
   run: async (payload, { ctx }) => {
     // Log the start of the job
     logger.log("Starting Dexcom polling job");

@@ -38,4 +38,6 @@ export default [
   route("api/glucose/history", "./routes/api/glucose/history.ts"),
   route("api/dexcom/token", "./routes/api/dexcom/token.ts"),
   route("api/dexcom/callback", "./routes/api/dexcom/callback.ts"),
+  route("api/dexcom/events", "./routes/api/dexcom/events.ts"),
+  route("api/webhook/update-gcm", "./routes/api/webhook/update-gcm.ts"),
 ] satisfies RouteConfig;

@@ -28,6 +28,9 @@ export async function action({ request }: Route.ActionArgs) {
     });
     isAdmin = existingParents.length === 0; // First parent is admin
 
+    // Set isAthlete based on role
+    const isAthlete = false; // API registration is only for parents
+
     // Create user
     const user = await createUser({
       email: email.toLowerCase(),
@@ -35,11 +38,17 @@ export async function action({ request }: Route.ActionArgs) {
       name,
       role: "PARENT",
       isAdmin,
+      isAthlete,
     });
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isAthlete: user.isAthlete,
+      },
       process.env.JWT_SECRET || "your-secret-key",
       { expiresIn: "7d" }
     );
@@ -52,6 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
         name: user.name,
         email: user.email,
         role: user.role,
+        isAthlete: user.isAthlete,
       },
     });
   } catch (error) {

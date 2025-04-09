@@ -3,22 +3,22 @@ import type { Route } from "./+types/status";
 import { authenticate } from "./constants";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const user = await authenticate(request);
-  if (!user) {
+  const athlete = await authenticate(request);
+  if (!athlete) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const latestGlucose = await db.glucoseReading.findFirst({
-      where: { userId: user.id },
       orderBy: { recordedAt: "desc" },
+      include: { status: true },
     });
 
     return Response.json({
-      status: latestGlucose
+      status: latestGlucose?.status
         ? {
-            type: latestGlucose.statusType,
-            acknowledgedAt: latestGlucose.acknowledgedAt,
+            type: latestGlucose.status.type,
+            acknowledgedAt: latestGlucose.status.acknowledgedAt,
           }
         : null,
       glucoseReading: latestGlucose,

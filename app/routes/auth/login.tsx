@@ -15,7 +15,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await getUserFromSession(request);
   if (user) {
     // Redirect to appropriate dashboard based on role
-    if (user.role === "ATHLETE") {
+    if (user.isAthlete) {
       return redirect("/athlete");
     }
     return redirect("/parent");
@@ -49,7 +49,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   // Redirect to role-specific dashboard
-  const finalRedirect = user.role === "ATHLETE" ? "/athlete" : "/parent";
+  const finalRedirect = user.isAthlete ? "/athlete" : "/parent";
 
   return createUserSession(user.id, finalRedirect as string);
 }

@@ -111,18 +111,26 @@ export default function ParentMessagesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+    <div className="container mx-auto py-8">
+      {/* Page Header - No Card */}
+      <div className="mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Communicate with {athlete?.name || "your athlete"}
-            </p>
+            <h1 className="text-3xl font-bold mb-2 flex items-center">
+              <span className="mr-2">Messages</span>
+              {athlete?.name && (
+                <span className="text-gray-600 text-lg">to {athlete.name}</span>
+              )}
+            </h1>
+            <p className="text-gray-600">Communicate with your athlete</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/parent")}>
+
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/parent")}
+              className="flex items-center"
+            >
               <ArrowLeft className="h-4 w-4 mr-1.5" />
               Back to Dashboard
             </Button>
@@ -131,56 +139,60 @@ export default function ParentMessagesPage() {
       </div>
 
       {athlete ? (
-        <div className="grid grid-cols-1 gap-6">
-          {/* Messages area */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Messages to {athlete.name}</CardTitle>
+        <div className="space-y-6">
+          {/* Messages Card */}
+          <Card className="shadow-sm">
+            <CardHeader className="border-b bg-gray-50/50">
+              <CardTitle className="text-xl">Message History</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[400px]">
+            <CardContent className="p-0">
+              <ScrollArea className="h-[400px] p-6">
                 {sentMessages.length === 0 ? (
-                  <div className="text-center text-gray-500 py-4">
-                    No messages yet.
+                  <div className="text-center text-gray-500 py-8">
+                    <p className="text-lg font-medium">No messages yet</p>
+                    <p className="text-sm mt-1">
+                      Start a conversation with your athlete
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {sentMessages.map((message) => (
                       <div
                         key={message.id}
-                        className="bg-gray-50 rounded-lg p-4"
+                        className="bg-white rounded-lg p-4 border shadow-sm hover:shadow-md transition-shadow"
                       >
-                        <div className="flex justify-between items-start">
-                          <span className="text-xs text-gray-500">
-                            To: {message.receiver.name}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(message.createdAt).toLocaleString()}
-                          </span>
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-2">
+                            {message.isUrgent && (
+                              <Badge
+                                variant="destructive"
+                                className="flex items-center"
+                              >
+                                <AlertCircle className="h-3 w-3 mr-1" />
+                                Urgent
+                              </Badge>
+                            )}
+                            <span className="text-xs text-gray-500">
+                              {new Date(message.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <Badge
+                            variant={message.read ? "secondary" : "default"}
+                          >
+                            {message.read ? "Read" : "Unread"}
+                          </Badge>
                         </div>
 
-                        <div className="mt-2">
-                          {message.isUrgent && (
-                            <Badge variant="destructive" className="mb-2">
-                              <AlertCircle className="h-3 w-3 mr-1" />
-                              Urgent
-                            </Badge>
-                          )}
-                          <p className="text-sm text-gray-700">
-                            {message.content}
-                          </p>
-                        </div>
-
-                        <div className="mt-2 text-xs text-gray-500">
-                          {message.read ? "Read" : "Unread"}
-                        </div>
+                        <p className="text-gray-700 whitespace-pre-wrap">
+                          {message.content}
+                        </p>
                       </div>
                     ))}
                   </div>
                 )}
               </ScrollArea>
             </CardContent>
-            <CardFooter className="border-t">
+            <CardFooter className="border-t bg-gray-50/50 p-6">
               <fetcher.Form
                 method="post"
                 onSubmit={handleSubmit}
@@ -198,16 +210,23 @@ export default function ParentMessagesPage() {
                     rows={3}
                     required
                     placeholder="Type your message here..."
+                    className="resize-none"
                   />
                 </div>
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Checkbox id="isUrgent" name="isUrgent" value="true" />
-                    <Label htmlFor="isUrgent">Mark as urgent</Label>
+                    <Label htmlFor="isUrgent" className="text-sm">
+                      Mark as urgent
+                    </Label>
                   </div>
 
-                  <Button type="submit" disabled={fetcher.state !== "idle"}>
+                  <Button
+                    type="submit"
+                    disabled={fetcher.state !== "idle"}
+                    className="flex items-center"
+                  >
                     <Send className="h-4 w-4 mr-1.5" />
                     {fetcher.state !== "idle" ? "Sending..." : "Send Message"}
                   </Button>
@@ -217,13 +236,16 @@ export default function ParentMessagesPage() {
           </Card>
         </div>
       ) : (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <div className="text-center">
-              <p className="text-lg font-medium">No athlete found</p>
-              <p className="text-sm text-gray-500 mt-2">
-                Please contact the system administrator to set up your athlete's
-                account.
+        <Card className="shadow-sm">
+          <CardContent className="py-12 text-center">
+            <div className="max-w-md mx-auto">
+              <h2 className="text-xl font-bold mb-2">No Athlete Found</h2>
+              <p className="text-gray-600">
+                It looks like your son's account has not been set up yet.
+              </p>
+              <p className="text-gray-600 mt-2">
+                Contact the system administrator to set up your son's account as
+                an athlete.
               </p>
             </div>
           </CardContent>

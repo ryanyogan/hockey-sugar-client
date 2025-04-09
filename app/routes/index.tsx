@@ -7,7 +7,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   if (user) {
     // Redirect to appropriate dashboard based on role
-    if (user.role === "ATHLETE") {
+    if (user.isAthlete) {
       return redirect("/athlete");
     }
     return redirect("/parent");

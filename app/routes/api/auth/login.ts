@@ -15,7 +15,7 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ message: "Invalid email or password" }, { status: 401 });
     }
 
-    if (user.role !== "ATHLETE") {
+    if (!user.isAthlete) {
       return data(
         { message: "Only athletes can use the mobile app" },
         { status: 403 }
@@ -24,7 +24,12 @@ export async function action({ request }: Route.ActionArgs) {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isAthlete: user.isAthlete,
+      },
       process.env.JWT_SECRET || "your-secret-key",
       { expiresIn: "7d" }
     );
@@ -37,6 +42,7 @@ export async function action({ request }: Route.ActionArgs) {
         name: user.name,
         email: user.email,
         role: user.role,
+        isAthlete: user.isAthlete,
       },
     });
   } catch (error) {

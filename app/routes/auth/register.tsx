@@ -15,7 +15,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await getUserFromSession(request);
   if (user) {
     // Redirect to appropriate dashboard based on role
-    if (user.role === "ATHLETE") {
+    if (user.isAthlete) {
       return redirect("/athlete");
     }
     return redirect("/parent");
@@ -64,7 +64,7 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ errors: { name: "Name is required" } }, { status: 400 });
   }
 
-  if (!role || (role !== "PARENT" && role !== "ATHLETE")) {
+  if (!role || (role !== "PARENT" && role !== "ATHLETE" && role !== "COACH")) {
     return data(
       { errors: { role: "Valid role is required" } },
       { status: 400 }
@@ -92,12 +92,16 @@ export async function action({ request }: Route.ActionArgs) {
     isAdmin = existingParents.length === 0; // First parent is admin
   }
 
+  // Set isAthlete based on role
+  const isAthlete = role === "ATHLETE";
+
   const user = await createUser({
     email: email.toLowerCase(),
     password,
     name,
-    role: role as "PARENT" | "ATHLETE",
+    role: role as "PARENT" | "ATHLETE" | "COACH",
     isAdmin,
+    isAthlete,
   });
 
   // Redirect to role-specific dashboard
@@ -238,6 +242,7 @@ export default function Register() {
                   <option value="">Select a role</option>
                   <option value="PARENT">Parent/Guardian</option>
                   <option value="ATHLETE">Athlete</option>
+                  <option value="COACH">Coach</option>
                 </select>
                 {actionData?.errors?.role && (
                   <p className="mt-1 text-sm text-red-600">

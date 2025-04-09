@@ -1,3 +1,4 @@
+import { AlertCircle, ArrowLeft } from "lucide-react";
 import {
   data,
   Form,
@@ -7,6 +8,13 @@ import {
   useNavigation,
 } from "react-router";
 import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { createUser } from "~/lib/auth.server";
@@ -156,189 +164,131 @@ export default function AddChildPage() {
   const isSubmitting = navigation.state === "submitting";
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+    <div className="container mx-auto py-8">
+      {/* Page Header - No Card */}
+      <div className="mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Add Athlete</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <h1 className="text-3xl font-bold mb-2">Add Athlete</h1>
+            <p className="text-gray-600">
               Create a new athlete account to monitor their health data
             </p>
           </div>
-          <Link to="/parent">
-            <Button variant="outline">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4 mr-1.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10 19l-7-7m0 0l7-7m-7 7h18"
-                />
-              </svg>
-              Back to Dashboard
-            </Button>
-          </Link>
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            <Link to="/parent">
+              <Button variant="outline" className="flex items-center">
+                <ArrowLeft className="h-4 w-4 mr-1.5" />
+                Back to Dashboard
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
 
       {/* Form card */}
-      <div className="bg-white rounded-lg shadow p-6">
-        {actionData?.errors?.form && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
-            <div className="flex items-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 mr-2 text-red-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+      <Card className="shadow-sm">
+        <CardHeader className="border-b bg-gray-50/50">
+          <CardTitle>Athlete Information</CardTitle>
+          <CardDescription>
+            Enter the details for the new athlete account
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          {actionData?.errors?.form && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+                <span>{actionData.errors.form}</span>
+              </div>
+            </div>
+          )}
+
+          <Form method="post" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <Label htmlFor="name">Athlete's Name</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  required
+                  defaultValue={actionData?.values?.name || ""}
+                  className="mt-1"
+                  placeholder="Enter athlete's name"
                 />
-              </svg>
-              <span>{actionData.errors.form}</span>
-            </div>
-          </div>
-        )}
+                {actionData?.errors?.name && (
+                  <p className="mt-1 text-sm text-red-600">
+                    {actionData.errors.name}
+                  </p>
+                )}
+              </div>
 
-        <Form method="post" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <Label htmlFor="name">Athlete's Name</Label>
-              <Input
-                id="name"
-                name="name"
-                type="text"
-                required
-                defaultValue={actionData?.values?.name || ""}
-                className="mt-1"
-                placeholder="Enter athlete's name"
-              />
-              {actionData?.errors?.name && (
-                <p className="mt-1 text-sm text-red-600">
-                  {actionData.errors.name}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label htmlFor="email">Athlete's Email Address</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                defaultValue={actionData?.values?.email || ""}
-                className="mt-1"
-                placeholder="athlete@example.com"
-              />
-              {actionData?.errors?.email && (
-                <p className="mt-1 text-sm text-red-600">
-                  {actionData.errors.email}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                className="mt-1"
-                placeholder="Create a password"
-              />
-              {actionData?.errors?.password && (
-                <p className="mt-1 text-sm text-red-600">
-                  {actionData.errors.password}
-                </p>
-              )}
+              <div>
+                <Label htmlFor="email">Athlete's Email Address</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  defaultValue={actionData?.values?.email || ""}
+                  className="mt-1"
+                  placeholder="athlete@example.com"
+                />
+                {actionData?.errors?.email && (
+                  <p className="mt-1 text-sm text-red-600">
+                    {actionData.errors.email}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div>
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                required
-                className="mt-1"
-                placeholder="Confirm password"
-              />
-              {actionData?.errors?.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">
-                  {actionData.errors.confirmPassword}
-                </p>
-              )}
-            </div>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  className="mt-1"
+                  placeholder="Create a password"
+                />
+                {actionData?.errors?.password && (
+                  <p className="mt-1 text-sm text-red-600">
+                    {actionData.errors.password}
+                  </p>
+                )}
+              </div>
 
-          <div className="pt-4">
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <svg
-                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                  Adding Athlete...
-                </>
-              ) : (
-                <>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 mr-1.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-                    />
-                  </svg>
-                  Add Athlete
-                </>
-              )}
-            </Button>
-          </div>
-        </Form>
-      </div>
+              <div>
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  required
+                  className="mt-1"
+                  placeholder="Confirm the password"
+                />
+                {actionData?.errors?.confirmPassword && (
+                  <p className="mt-1 text-sm text-red-600">
+                    {actionData.errors.confirmPassword}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting
+                  ? "Creating Account..."
+                  : "Create Athlete Account"}
+              </Button>
+            </div>
+          </Form>
+        </CardContent>
+      </Card>
     </div>
   );
 }
