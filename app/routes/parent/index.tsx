@@ -343,8 +343,7 @@ export default function ParentDashboard() {
   const handleFetcherResponse = (response: any) => {
     if (response.success) {
       resetForm();
-      // Refresh the page to show updated data
-      window.location.reload();
+      validator.revalidate();
     } else if (response.noNewData) {
       alert("Dexcom has not provided a new value yet");
     } else if (response.needsReauth) {
